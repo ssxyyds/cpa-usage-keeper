@@ -87,10 +87,12 @@ describe('CodexPoolPanel view helpers', () => {
     expect(filterCodexPoolAccounts(rows, 'alpha').map((row) => row.auth_index)).toEqual(['codex-alpha'])
   })
 
-  it('uses plan type for account badges and ignores auth method labels', () => {
+  it('uses plan type for account badges and defaults non-plan values to free', () => {
     expect(accountTypeLabel({ account_type: 'oauth', plan_type: 'plus' } as CodexStateAccount)).toBe('plus')
     expect(accountTypeLabel({ account_type: 'oauth', id_token: { plan_type: 'team' } } as CodexStateAccount)).toBe('team')
-    expect(accountTypeLabel({ account_type: 'oauth' } as CodexStateAccount)).toBeUndefined()
+    expect(accountTypeLabel({ account_type: 'oauth' } as CodexStateAccount)).toBe('free')
+    expect(accountTypeLabel({ account_type: '73sy6yihvf@ssxyykx.asia' } as CodexStateAccount)).toBe('free')
+    expect(accountTypeLabel({} as CodexStateAccount)).toBe('free')
   })
 
   it('localizes routing strategy labels for operators', () => {

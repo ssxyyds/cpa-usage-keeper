@@ -93,14 +93,13 @@ export function resetUrgencyTone(value: string | undefined, now: Date = new Date
 
 export function accountTypeLabel(account: CodexStateAccount): string | undefined {
   const raw = account.plan_type || account.id_token?.plan_type || account.account_type;
-  if (!raw) return undefined;
+  if (!raw) return 'free';
   const normalized = String(raw).trim().toLowerCase();
   if (normalized.includes('team')) return 'team';
   if (normalized.includes('plus')) return 'plus';
   if (normalized.includes('pro')) return 'pro';
   if (normalized.includes('free')) return 'free';
-  if (normalized === 'oauth' || normalized === 'api' || normalized === 'api_key') return undefined;
-  return normalized || undefined;
+  return 'free';
 }
 
 export function filterCodexPoolAccounts(accounts: CodexStateAccount[], query: string): CodexStateAccount[] {
@@ -313,14 +312,14 @@ export function CodexPoolPanel({ onAuthRequired }: { onAuthRequired?: () => void
                 <tr key={key} className={account.on_device ? styles.currentRow : undefined}>
                   <td>
                     <div className={styles.identity}>
-                      <span className={styles.identityName}>
+                      <div className={styles.identityName}>
                         {account.name || account.email || account.auth_index || account.id || '-'}
-                      </span>
-                      <span className={styles.identityBadges}>
+                      </div>
+                      <div className={styles.identityBadges}>
                         <span className={`${styles.statusBadge} ${account.disabled || account.unavailable ? styles.statusBadgeMuted : styles.statusBadgeActive}`.trim()}>{account.disabled ? t('usage_stats.codex_pool_status_disabled') : account.unavailable ? t('usage_stats.codex_pool_status_unavailable') : account.status || t('usage_stats.codex_pool_status_active')}</span>
                         {typeLabel && <span className={styles.typeBadge}>{typeLabel}</span>}
                         {account.on_device && <span className={styles.currentBadge}>{t('usage_stats.codex_pool_current_badge')}</span>}
-                      </span>
+                      </div>
                     </div>
                   </td>
                   <td><span className={`${styles.quotaPill} ${styles[`tone${quotaPercentTone(quotaRatio(account, 'weekly'))}`]}`}>{formatCodexQuotaPercent(account, 'weekly')}</span></td>

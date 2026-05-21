@@ -321,10 +321,9 @@
 }
 
 .identityName {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  flex-wrap: wrap;
+  display: block;
+  max-width: 100%;
+  overflow-wrap: anywhere;
   color: var(--text-primary);
   font-weight: 850;
 }
