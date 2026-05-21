@@ -1,14 +1,17 @@
-import { useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   buildAiProviderCredentialRows,
   buildAuthFileCredentialRows,
+  paginateCredentials,
   selectQuotaEligibleAuthIndexes,
+  sortAuthFileCredentialRows,
+  type CodexCredentialState,
   type AiProviderCredentialRow,
   type AuthFileCredentialRow,
 } from './credentialViewModels'
 import { useCredentialPages } from './useCredentialPages'
 import { useQuotaCache } from './useQuotaCache'
-import type { UsageIdentityPageSort } from '@/lib/api'
+import { ApiError, fetchCodexState, refreshCodexState, updateCodexManualScore, type UsageIdentityPageSort } from '@/lib/api'
 import { quotaRefreshDisplayError, useQuotaRefreshTasks } from './useQuotaRefreshTasks'
 
 interface UseCredentialsTabDataOptions {
@@ -44,15 +47,89 @@ export interface CredentialsTabData {
   refresh: () => Promise<void>
   refreshQuotaForCurrentAuthFilePage: () => Promise<void>
   refreshQuotaForAuthIndex: (authIndex: string) => Promise<void>
+  updateCodexManualScoreForAuthIndex: (authIndex: string, adjustment: number) => Promise<void>
+  codexStateLoading: boolean
+  codexStateError: string
 }
 
 export function useCredentialsTabData({ enabled, onAuthRequired }: UseCredentialsTabDataOptions): CredentialsTabData {
   // 页面 hook 只编排分页、缓存和刷新任务三层数据，不直接发散 API 调用。
   const credentialPages = useCredentialPages({ enabled, onAuthRequired })
+  const [codexCredentialStates, setCodexCredentialStates] = useState<Record<string, CodexCredentialState>>({})
+  const [codexStateLoading, setCodexStateLoading] = useState(false)
+  const [codexStateError, setCodexStateError] = useState('')
+  const codexStateRequestControllerRef = useRef<AbortController | null>(null)
+
+  const refreshCodexCredentialStates = useCallback(async () => {
+    codexStateRequestControllerRef.current?.abort()
+    const controller = new AbortController()
+    codexStateRequestControllerRef.current = controller
+    setCodexStateLoading(true)
+    setCodexStateError('')
+    try {
+      const response = await fetchCodexState(controller.signal)
+      if (codexStateRequestControllerRef.current !== controller) {
+        return
+      }
+      const nextStates: Record<string, CodexCredentialState> = {}
+      for (const account of response['codex-state'] ?? []) {
+        const authIndex = account.auth_index?.trim()
+        if (!authIndex) {
+          continue
+        }
+        nextStates[authIndex] = {
+          score: account.codex_computed_score ?? account.codex_score_explanation?.computed_score_live,
+          manualAdjustment: account.codex_manual_score_adjustment ?? account.codex_score_explanation?.manual_adjustment,
+          scoreReason: account.codex_score_reason ?? account.codex_last_selection_reason,
+        }
+      }
+      setCodexCredentialStates(nextStates)
+    } catch (nextError) {
+      if (controller.signal.aborted) {
+        return
+      }
+      if (nextError instanceof ApiError && nextError.status === 401) {
+        onAuthRequired?.()
+        return
+      }
+      setCodexStateError(nextError instanceof Error ? nextError.message : 'Failed to load Codex state')
+    } finally {
+      if (codexStateRequestControllerRef.current === controller) {
+        setCodexStateLoading(false)
+        codexStateRequestControllerRef.current = null
+      }
+    }
+  }, [onAuthRequired])
+
+  useEffect(() => {
+    if (!enabled) {
+      codexStateRequestControllerRef.current?.abort()
+      codexStateRequestControllerRef.current = null
+      setCodexStateLoading(false)
+      return
+    }
+    void refreshCodexCredentialStates()
+    return () => {
+      codexStateRequestControllerRef.current?.abort()
+      codexStateRequestControllerRef.current = null
+    }
+  }, [enabled, refreshCodexCredentialStates])
+
+  const codexStatesByAuthIndex = useMemo(() => new Map(Object.entries(codexCredentialStates)), [codexCredentialStates])
+  const pagedAuthFileIdentities = useMemo(() => {
+    if (!credentialPages.authFileClientPaging) {
+      return credentialPages.authFileIdentities
+    }
+    const sortedRows = sortAuthFileCredentialRows(
+      buildAuthFileCredentialRows(credentialPages.authFileIdentities, new Map(), new Map(), codexStatesByAuthIndex),
+      credentialPages.authFileSort,
+    )
+    return paginateCredentials(sortedRows, credentialPages.authFilePage, credentialPages.authFilePageSize).items.map((row) => row.identity)
+  }, [codexStatesByAuthIndex, credentialPages.authFileClientPaging, credentialPages.authFileIdentities, credentialPages.authFilePage, credentialPages.authFilePageSize, credentialPages.authFileSort])
   const currentAuthIndexes = useMemo(
     // quota 只对当前 Auth Files 页生效，AI Provider 不参与缓存读取和刷新。
-    () => selectQuotaEligibleAuthIndexes(credentialPages.authFileIdentities),
-    [credentialPages.authFileIdentities],
+    () => selectQuotaEligibleAuthIndexes(pagedAuthFileIdentities),
+    [pagedAuthFileIdentities],
   )
   const { quotaByAuthIndex, setQuotaByAuthIndex } = useQuotaCache({
     enabled,
@@ -75,14 +152,37 @@ export function useCredentialsTabData({ enabled, onAuthRequired }: UseCredential
     refreshStatus: state.refreshStatus,
   }])), [quotaRefreshTasks.quotaStateByAuthIndex])
 
-  const authFileRows = useMemo(
-    () => buildAuthFileCredentialRows(credentialPages.authFileIdentities, quotaRowsByAuthIndex, quotaStates),
-    [credentialPages.authFileIdentities, quotaRowsByAuthIndex, quotaStates],
+  const allAuthFileRows = useMemo(
+    () => sortAuthFileCredentialRows(
+      buildAuthFileCredentialRows(credentialPages.authFileClientPaging ? pagedAuthFileIdentities : credentialPages.authFileIdentities, quotaRowsByAuthIndex, quotaStates, codexStatesByAuthIndex),
+      credentialPages.authFileSort,
+    ),
+    [codexStatesByAuthIndex, credentialPages.authFileClientPaging, credentialPages.authFileIdentities, credentialPages.authFileSort, pagedAuthFileIdentities, quotaRowsByAuthIndex, quotaStates],
   )
+  const authFileRows = useMemo(() => {
+    return allAuthFileRows
+  }, [allAuthFileRows])
   const aiProviderRows = useMemo(
     () => buildAiProviderCredentialRows(credentialPages.aiProviderIdentities),
     [credentialPages.aiProviderIdentities],
   )
+  const refreshQuotaForCurrentAuthFilePage = useCallback(async () => {
+    await quotaRefreshTasks.refreshQuotaForCurrentAuthFilePage()
+    await refreshCodexState(currentAuthIndexes)
+    await refreshCodexCredentialStates()
+  }, [currentAuthIndexes, quotaRefreshTasks, refreshCodexCredentialStates])
+  const refreshQuotaForAuthIndex = useCallback(async (authIndex: string) => {
+    await quotaRefreshTasks.refreshQuotaForAuthIndex(authIndex)
+    await refreshCodexState([authIndex])
+    await refreshCodexCredentialStates()
+  }, [quotaRefreshTasks, refreshCodexCredentialStates])
+  const updateCodexManualScoreForAuthIndex = useCallback(async (authIndex: string, adjustment: number) => {
+    await updateCodexManualScore(authIndex, adjustment)
+    await refreshCodexCredentialStates()
+  }, [refreshCodexCredentialStates])
+  const refresh = useCallback(async () => {
+    await Promise.all([credentialPages.refresh(), refreshCodexCredentialStates()])
+  }, [credentialPages, refreshCodexCredentialStates])
 
   return {
     authFileRows,
@@ -109,9 +209,12 @@ export function useCredentialsTabData({ enabled, onAuthRequired }: UseCredential
     error: credentialPages.error,
     quotaRefreshing: quotaRefreshTasks.quotaRefreshing,
     quotaRefreshError: quotaRefreshTasks.quotaRefreshError,
-    refresh: credentialPages.refresh,
-    refreshQuotaForCurrentAuthFilePage: quotaRefreshTasks.refreshQuotaForCurrentAuthFilePage,
-    refreshQuotaForAuthIndex: quotaRefreshTasks.refreshQuotaForAuthIndex,
+    refresh,
+    refreshQuotaForCurrentAuthFilePage,
+    refreshQuotaForAuthIndex,
+    updateCodexManualScoreForAuthIndex,
+    codexStateLoading,
+    codexStateError,
   }
 }
 

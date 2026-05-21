@@ -20,6 +20,12 @@ export interface DisplayQuota {
   status: QuotaStatus
 }
 
+export interface CodexCredentialState {
+  score?: number
+  manualAdjustment?: number
+  scoreReason?: string
+}
+
 export interface AuthFileCredentialRow {
   identity: UsageIdentity
   displayName: string
@@ -41,6 +47,9 @@ export interface AuthFileCredentialRow {
   quotaError?: string
   refreshTaskId?: string
   refreshStatus?: 'queued' | 'running' | 'completed' | 'failed'
+  codexScore?: number
+  codexManualScoreAdjustment?: number
+  codexScoreReason?: string
   primaryQuota?: DisplayQuota
   secondaryQuota?: DisplayQuota
   extraQuota: DisplayQuota[]
@@ -113,10 +122,12 @@ export function buildAuthFileCredentialRows(
   identities: UsageIdentity[],
   quotas: Map<string, UsageQuotaRow[]> = new Map(),
   quotaStates: Map<string, Pick<AuthFileCredentialRow, 'quotaLoading' | 'quotaError' | 'refreshTaskId' | 'refreshStatus'>> = new Map(),
+  codexStates: Map<string, CodexCredentialState> = new Map(),
 ): AuthFileCredentialRow[] {
   return identities.map((identity) => {
     const quota = quotas.get(identity.identity) ?? []
     const state = quotaStates.get(identity.identity)
+    const codexState = codexStates.get(identity.identity)
     const displayQuotas = quota.map(toDisplayQuota)
     const planType = firstNonEmpty(...quota.map((row) => row.planType), identity.plan_type)
     // 先挑 5h 主窗口，再挑 Weekly 次窗口，其余限额保留到 chips 中展示。
@@ -145,10 +156,37 @@ export function buildAuthFileCredentialRows(
       quotaError: state?.quotaError,
       refreshTaskId: state?.refreshTaskId,
       refreshStatus: state?.refreshStatus,
+      codexScore: codexState?.score,
+      codexManualScoreAdjustment: codexState?.manualAdjustment,
+      codexScoreReason: codexState?.scoreReason,
       primaryQuota,
       secondaryQuota,
       extraQuota,
     }
+  })
+}
+
+export function sortAuthFileCredentialRows(rows: AuthFileCredentialRow[], sort: string): AuthFileCredentialRow[] {
+  if (sort !== 'codex_score_asc' && sort !== 'codex_score_desc') {
+    return rows
+  }
+  const direction = sort === 'codex_score_asc' ? 1 : -1
+  return [...rows].sort((left, right) => {
+    const leftScore = finiteNumber(left.codexScore)
+    const rightScore = finiteNumber(right.codexScore)
+    if (leftScore === undefined && rightScore === undefined) {
+      return left.displayName.localeCompare(right.displayName)
+    }
+    if (leftScore === undefined) {
+      return 1
+    }
+    if (rightScore === undefined) {
+      return -1
+    }
+    if (leftScore === rightScore) {
+      return left.displayName.localeCompare(right.displayName)
+    }
+    return (leftScore - rightScore) * direction
   })
 }
 

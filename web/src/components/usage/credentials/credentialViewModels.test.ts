@@ -4,6 +4,7 @@ import {
   CREDENTIALS_PAGE_SIZE,
   buildAiProviderCredentialRows,
   buildAuthFileCredentialRows,
+  sortAuthFileCredentialRows,
   paginateCredentials,
   selectQuotaEligibleAuthIndexes,
   splitCredentialIdentities,
@@ -164,6 +165,36 @@ describe('credentialViewModels', () => {
     expect(rows[0].secondaryQuota?.percentKind).toBe('used')
     expect(rows[0].secondaryQuota?.barPercent).toBe(60)
     expect(rows[0].extraQuota.map((quota) => quota.label)).toEqual(['Code Assist Credit'])
+  })
+
+  it('adds Codex score data to matching auth file rows', () => {
+    const rows = buildAuthFileCredentialRows([
+      identity({ identity: 'codex-auth', provider: 'codex', type: 'codex' }),
+    ], new Map(), new Map(), new Map([
+      ['codex-auth', {
+        score: 12.5,
+        manualAdjustment: 20,
+        scoreReason: 'weekly remaining',
+      }],
+    ]))
+
+    expect(rows[0].codexScore).toBe(12.5)
+    expect(rows[0].codexManualScoreAdjustment).toBe(20)
+    expect(rows[0].codexScoreReason).toBe('weekly remaining')
+  })
+
+  it('sorts auth file rows by Codex score ascending and descending with unknown scores last', () => {
+    const rows = buildAuthFileCredentialRows([
+      identity({ identity: 'unknown' }),
+      identity({ identity: 'low' }),
+      identity({ identity: 'high' }),
+    ], new Map(), new Map(), new Map([
+      ['low', { score: -2, manualAdjustment: 0 }],
+      ['high', { score: 20, manualAdjustment: 0 }],
+    ]))
+
+    expect(sortAuthFileCredentialRows(rows, 'codex_score_asc').map((row) => row.identity.identity)).toEqual(['low', 'high', 'unknown'])
+    expect(sortAuthFileCredentialRows(rows, 'codex_score_desc').map((row) => row.identity.identity)).toEqual(['high', 'low', 'unknown'])
   })
 
   it('uses Claude token semantics for auth file cache rate', () => {

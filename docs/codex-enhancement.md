@@ -70,6 +70,20 @@ Manual score request:
 
 The intended adjustment range is `-100` to `100`; CPA remains the authority that validates and stores the value.
 
+## Credentials Integration
+
+`Usage -> Credentials -> Auth Files` also consumes Codex state:
+
+- Quota bars still use the existing quota cache/refresh task flow.
+- Refreshing the current page or a single row updates the local quota cache and also asks CPA to refresh Codex state for those auth indexes.
+- Codex auth file rows show `Codex Score` with the computed score and editable manual adjustment.
+- Manual score edits call `PATCH /api/v1/codex-state/manual-score`, then reload Codex state.
+- Sort options include:
+  - `codex_score_desc`: highest score first
+  - `codex_score_asc`: lowest score first
+
+When sorting by Codex score, the frontend loads all auth file identities and performs local sorting/pagination after merging `codex-state`. This avoids sorting only the current server page when the pool has more than one page of accounts.
+
 ## Files To Preserve When Syncing Upstream
 
 Backend:
@@ -87,6 +101,7 @@ Backend:
 Frontend:
 
 - `web/src/components/usage/codex/*`
+- Codex state merge and score sort in `web/src/components/usage/credentials/*`
 - Codex state types in `web/src/lib/types.ts`
 - Codex state API functions in `web/src/lib/api.ts`
 - API test coverage in `web/src/lib/api.test.ts`

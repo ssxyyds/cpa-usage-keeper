@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ApiError, fetchUsageIdentitiesPage, type UsageIdentityPageSort } from '@/lib/api'
+import { ApiError, fetchUsageIdentities, fetchUsageIdentitiesPage, type UsageIdentityPageSort } from '@/lib/api'
 import type { UsageIdentity } from '@/lib/types'
 import { CREDENTIALS_PAGE_SIZE } from './credentialViewModels'
 
@@ -14,6 +14,8 @@ const getInitialAuthFileActiveOnly = () => {
   if (typeof window === 'undefined') return false
   return window.localStorage.getItem(AUTH_FILE_ACTIVE_ONLY_STORAGE_KEY) === 'true'
 }
+
+export const isCodexScoreSort = (sort: UsageIdentityPageSort) => sort === 'codex_score_asc' || sort === 'codex_score_desc'
 
 export interface CredentialPagesState {
   authFileIdentities: UsageIdentity[]
@@ -39,6 +41,7 @@ export interface CredentialPagesState {
   loading: boolean
   error: string
   refresh: () => Promise<void>
+  authFileClientPaging: boolean
 }
 
 export function useCredentialPages({ enabled, onAuthRequired }: UseCredentialPagesOptions): CredentialPagesState {
@@ -93,6 +96,19 @@ export function useCredentialPages({ enabled, onAuthRequired }: UseCredentialPag
     setAuthFilesLoading(true)
     setError('')
     try {
+      if (isCodexScoreSort(authFileSort)) {
+        const response = await fetchUsageIdentities(controller.signal)
+        if (authFilesRequestControllerRef.current !== controller) {
+          return
+        }
+        const identities = (response.identities ?? [])
+          .filter((identity) => identity.auth_type === 1)
+          .filter((identity) => !authFileActiveOnly || !identity.disabled)
+        setAuthFileIdentities(identities)
+        setAuthFileTotal(identities.length)
+        setAuthFileTotalPages(Math.max(1, Math.ceil(identities.length / authFilePageSize)))
+        return
+      }
       const response = await fetchUsageIdentitiesPage(controller.signal, { authType: 1, activeOnly: authFileActiveOnly ? true : undefined, sort: authFileSort, page: authFilePage, pageSize: authFilePageSize })
       if (authFilesRequestControllerRef.current !== controller) {
         return
@@ -215,5 +231,6 @@ export function useCredentialPages({ enabled, onAuthRequired }: UseCredentialPag
     loading: authFilesLoading || aiProvidersLoading,
     error,
     refresh,
+    authFileClientPaging: isCodexScoreSort(authFileSort),
   }
 }

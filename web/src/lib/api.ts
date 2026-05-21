@@ -193,7 +193,7 @@ export async function fetchUsageEvents(range: string, start?: string, end?: stri
   return response.json()
 }
 
-export type UsageIdentityPageSort = 'priority' | 'total_requests' | 'total_tokens'
+export type UsageIdentityPageSort = 'priority' | 'total_requests' | 'total_tokens' | 'codex_score_asc' | 'codex_score_desc'
 
 export interface FetchUsageIdentitiesPageOptions {
   authType?: UsageIdentityAuthType
