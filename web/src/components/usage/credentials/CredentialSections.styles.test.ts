@@ -50,13 +50,9 @@ describe('Credential section styles', () => {
     expect(credentialStyles).toMatch(/\.credentialRequestBreakdown\s*\{[\s\S]*?line-height:\s*1\.2;/)
   })
 
-  it('keeps the Codex score editor on one line inside Auth Files metrics', () => {
-    expect(authFileSectionSource).toContain('className={styles.credentialCodexScorePill}')
-    expect(credentialStyles).toMatch(/\.credentialCodexScorePill\s*\{[\s\S]*?grid-column:\s*span 2;/)
-    expect(credentialStyles).toMatch(/\.credentialCodexScoreControl\s*\{[\s\S]*?white-space:\s*nowrap;/)
-    expect(credentialStyles).toMatch(/\.credentialCodexScoreInput\s*\{[\s\S]*?flex:\s*0 0 54px;/)
-    expect(credentialStyles).toMatch(/\.credentialCodexScoreSave\s*\{[\s\S]*?white-space:\s*nowrap;/)
-    expect(credentialStyles).toMatch(/\.credentialCodexScoreSave\s*\{[\s\S]*?flex:\s*0 0 auto;/)
+  it('keeps Codex score editing out of Auth Files metrics', () => {
+    expect(authFileSectionSource).not.toContain('credentialCodexScorePill')
+    expect(authFileSectionSource).not.toContain('CodexScoreMetric')
   })
 
   it('uses a fixed centered pagination bar height', () => {

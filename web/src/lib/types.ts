@@ -317,6 +317,7 @@ export interface CodexScoreExplanation {
   expiry_urgency_bonus?: number
   manual_adjustment?: number
   refresh_is_fresh?: boolean
+  disqualifier_reason?: string
   formula_label?: string
 }
 

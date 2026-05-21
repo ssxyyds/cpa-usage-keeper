@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { CodexStateAccount } from '@/lib/types'
-import { currentCodexPoolAccount, formatCodexRefreshTime, sortCodexPoolAccounts } from './CodexPoolPanel'
+import { currentCodexPoolAccount, formatCodexNextRefreshTime, formatCodexRefreshTime, sortCodexPoolAccounts } from './CodexPoolPanel'
 
 const account = (authIndex: string, score?: number): CodexStateAccount => ({
   auth_index: authIndex,
@@ -43,5 +43,19 @@ describe('CodexPoolPanel view helpers', () => {
 
     expect(label).not.toBe('ok')
     expect(label).toContain('2026')
+  })
+
+  it('derives the next quota refresh from the next 15-minute boundary', () => {
+    const row = {
+      auth_index: 'codex-1',
+      codex_quota: {
+        last_refresh_at: '2026-05-21T09:49:48Z',
+      },
+    } as CodexStateAccount
+
+    const label = formatCodexNextRefreshTime(row)
+
+    expect(label).toContain('2026')
+    expect(label).not.toBe('-')
   })
 })

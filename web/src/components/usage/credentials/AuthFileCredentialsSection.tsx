@@ -1,4 +1,3 @@
-import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { IconRefreshCw } from '@/components/ui/icons'
@@ -24,10 +23,9 @@ interface AuthFileCredentialsSectionProps {
   onSortChange: (sort: UsageIdentityPageSort) => void
   onRefreshQuota: () => Promise<void>
   onRefreshQuotaForAuthIndex: (authIndex: string) => Promise<void>
-  onUpdateCodexManualScore: (authIndex: string, adjustment: number) => Promise<void>
 }
 
-export function AuthFileCredentialsSection({ rows, total, page, totalPages, pageSize, activeOnly, sort, loading, quotaRefreshing, quotaRefreshError, onPageChange, onPageSizeChange, onActiveOnlyChange, onSortChange, onRefreshQuota, onRefreshQuotaForAuthIndex, onUpdateCodexManualScore }: AuthFileCredentialsSectionProps) {
+export function AuthFileCredentialsSection({ rows, total, page, totalPages, pageSize, activeOnly, sort, loading, quotaRefreshing, quotaRefreshError, onPageChange, onPageSizeChange, onActiveOnlyChange, onSortChange, onRefreshQuota, onRefreshQuotaForAuthIndex }: AuthFileCredentialsSectionProps) {
   const { t } = useTranslation()
   const canRefresh = rows.some((row) => !isRowRefreshing(row) && !row.identity.is_deleted) && !quotaRefreshing
 
@@ -84,9 +82,6 @@ export function AuthFileCredentialsSection({ rows, total, page, totalPages, page
                 {row.successRate !== null && <MetricPill label={t('usage_stats.success_rate')} value={<TonePercent value={row.successRate} tone={successRateTone(row.successRate)} />} />}
                 {row.totalTokens > 0 && <MetricPill label={t('usage_stats.total_tokens')} value={formatCredentialNumber(row.totalTokens)} />}
                 {row.cacheRate !== null && <MetricPill label={t('usage_stats.cache_rate')} value={<TonePercent value={row.cacheRate} tone={cacheRateTone(row.cacheRate)} />} />}
-                {(row.codexScore !== undefined || row.typeLabel.toLowerCase() === 'codex' || row.providerLabel.toLowerCase() === 'codex') && (
-                  <MetricPill className={styles.credentialCodexScorePill} label={t('usage_stats.credentials_codex_score')} value={<CodexScoreMetric row={row} onSave={onUpdateCodexManualScore} />} />
-                )}
               </>
             )}
             rowClassName={styles.authFileCredentialRow}
@@ -119,8 +114,6 @@ export function AuthFileCredentialsSection({ rows, total, page, totalPages, page
           { value: 'priority', label: t('usage_stats.credentials_sort_priority') },
           { value: 'total_requests', label: t('usage_stats.credentials_sort_total_requests') },
           { value: 'total_tokens', label: t('usage_stats.credentials_sort_total_tokens') },
-          { value: 'codex_score_desc', label: t('usage_stats.credentials_sort_codex_score_desc') },
-          { value: 'codex_score_asc', label: t('usage_stats.credentials_sort_codex_score_asc') },
         ]}
         previousLabel={t('usage_stats.previous_page')}
         nextLabel={t('usage_stats.next_page')}
@@ -130,46 +123,6 @@ export function AuthFileCredentialsSection({ rows, total, page, totalPages, page
         onSortChange={(nextSort) => onSortChange(nextSort as UsageIdentityPageSort)}
       />
     </CredentialSectionShell>
-  )
-}
-
-function CodexScoreMetric({ row, onSave }: { row: AuthFileCredentialRow; onSave: (authIndex: string, adjustment: number) => Promise<void> }) {
-  const { t } = useTranslation()
-  const [draft, setDraft] = useState(String(row.codexManualScoreAdjustment ?? 0))
-  const [saving, setSaving] = useState(false)
-
-  useEffect(() => {
-    setDraft(String(row.codexManualScoreAdjustment ?? 0))
-  }, [row.codexManualScoreAdjustment])
-
-  const scoreLabel = row.codexScore === undefined ? '—' : row.codexScore.toFixed(2)
-  const adjustment = Number(draft)
-  const canSave = Number.isFinite(adjustment) && adjustment >= -100 && adjustment <= 100 && !saving
-
-  return (
-    <span className={styles.credentialCodexScoreControl} title={row.codexScoreReason}>
-      <strong className={styles.credentialCodexScoreValue}>{scoreLabel}</strong>
-      <input
-        className={styles.credentialCodexScoreInput}
-        type="number"
-        min="-100"
-        max="100"
-        value={draft}
-        aria-label={t('usage_stats.credentials_codex_manual_score')}
-        onChange={(event) => setDraft(event.target.value)}
-      />
-      <button
-        type="button"
-        className={styles.credentialCodexScoreSave}
-        disabled={!canSave}
-        onClick={() => {
-          setSaving(true)
-          void onSave(row.identity.identity, adjustment).finally(() => setSaving(false))
-        }}
-      >
-        {saving ? t('usage_stats.api_key_settings_saving') : t('common.save')}
-      </button>
-    </span>
   )
 }
 

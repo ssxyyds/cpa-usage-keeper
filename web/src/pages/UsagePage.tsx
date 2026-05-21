@@ -1608,7 +1608,6 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                     onSortChange={credentialsData.setAuthFileSort}
                     onRefreshQuota={credentialsData.refreshQuotaForCurrentAuthFilePage}
                     onRefreshQuotaForAuthIndex={credentialsData.refreshQuotaForAuthIndex}
-                    onUpdateCodexManualScore={credentialsData.updateCodexManualScoreForAuthIndex}
                   />
                   <AiProviderCredentialsSection
                     rows={credentialsData.aiProviderRows}

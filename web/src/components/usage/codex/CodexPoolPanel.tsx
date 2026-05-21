@@ -27,7 +27,8 @@ function quotaValue(account: CodexStateAccount, window: 'weekly' | 'five_hour') 
 }
 
 function finiteScore(account: CodexStateAccount) {
-  return Number.isFinite(account.codex_computed_score) ? account.codex_computed_score : undefined;
+  const score = account.codex_computed_score ?? account.codex_score_explanation?.computed_score_live;
+  return Number.isFinite(score) ? score : undefined;
 }
 
 export function sortCodexPoolAccounts(accounts: CodexStateAccount[]): CodexStateAccount[] {
@@ -49,6 +50,34 @@ export function currentCodexPoolAccount(accounts: CodexStateAccount[]): CodexSta
 
 export function formatCodexRefreshTime(account: CodexStateAccount): string {
   return formatDateTime(account.codex_quota?.last_refresh_at);
+}
+
+export function formatCodexNextRefreshTime(account: CodexStateAccount): string {
+  const refreshedAt = account.codex_quota?.last_refresh_at;
+  if (!refreshedAt) return '-';
+  const date = new Date(refreshedAt);
+  const refreshMs = date.getTime();
+  if (!Number.isFinite(refreshMs)) return '-';
+  const intervalMs = 15 * 60 * 1000;
+  const nextBoundary = Math.floor(refreshMs / intervalMs) * intervalMs + intervalMs;
+  return formatDateTime(new Date(nextBoundary).toISOString());
+}
+
+function nextQuotaResetTime(account: CodexStateAccount): string | undefined {
+  const candidates = [account.codex_quota?.five_hour?.reset_at, account.codex_quota?.weekly?.reset_at]
+    .flatMap((value) => {
+      if (!value) return [];
+      const date = new Date(value);
+      return Number.isFinite(date.getTime()) ? [date] : [];
+    })
+    .sort((left, right) => left.getTime() - right.getTime());
+  return candidates[0]?.toISOString();
+}
+
+function scoreTitle(account: CodexStateAccount) {
+  const explanation = account.codex_score_explanation;
+  if (explanation?.score_available && explanation.formula_label) return explanation.formula_label;
+  return explanation?.disqualifier_reason || account.codex_score_reason || account.codex_last_selection_reason || undefined;
 }
 
 export function CodexPoolPanel({ onAuthRequired }: { onAuthRequired?: () => void }) {
@@ -148,6 +177,11 @@ export function CodexPoolPanel({ onAuthRequired }: { onAuthRequired?: () => void
 
       {error && <div className={styles.error}>{error}</div>}
 
+      <div className={styles.helpStrip}>
+        <span>{t('usage_stats.codex_pool_score_tip')}</span>
+        <span>{t('usage_stats.codex_pool_manual_tip')}</span>
+      </div>
+
       {currentAccount && (
         <div className={styles.currentAccountBanner}>
           <span className={styles.currentAccountLabel}>{t('usage_stats.codex_pool_current_account')}</span>
@@ -194,13 +228,15 @@ export function CodexPoolPanel({ onAuthRequired }: { onAuthRequired?: () => void
               <th>{t('usage_stats.codex_pool_five_hour')}</th>
               <th>{t('usage_stats.codex_pool_score')}</th>
               <th>{t('usage_stats.codex_pool_manual')}</th>
-              <th>{t('usage_stats.codex_pool_weekly_reset')}</th>
+              <th>{t('usage_stats.codex_pool_quota_reset')}</th>
+              <th>{t('usage_stats.codex_pool_next_refresh')}</th>
               <th>{t('usage_stats.codex_pool_recent_refresh')}</th>
             </tr>
           </thead>
           <tbody>
             {accounts.map((account) => {
               const key = accountKey(account);
+              const score = finiteScore(account);
               return (
                 <tr key={key} className={account.on_device ? styles.currentRow : undefined}>
                   <td>
@@ -215,7 +251,7 @@ export function CodexPoolPanel({ onAuthRequired }: { onAuthRequired?: () => void
                   <td><span className={`${styles.statusBadge} ${account.disabled || account.unavailable ? styles.statusBadgeMuted : styles.statusBadgeActive}`.trim()}>{account.disabled ? t('usage_stats.codex_pool_status_disabled') : account.unavailable ? t('usage_stats.codex_pool_status_unavailable') : account.status || t('usage_stats.codex_pool_status_active')}</span></td>
                   <td><span className={styles.number}>{quotaValue(account, 'weekly')}</span></td>
                   <td><span className={styles.number}>{quotaValue(account, 'five_hour')}</span></td>
-                  <td><span className={styles.scoreBadge}>{formatNumber(account.codex_computed_score)}</span></td>
+                  <td><span className={score === undefined ? styles.scoreBadgeMuted : styles.scoreBadge} title={scoreTitle(account)}>{formatNumber(score)}</span></td>
                   <td>
                     <span className={styles.scoreControl}>
                       <input
@@ -229,7 +265,8 @@ export function CodexPoolPanel({ onAuthRequired }: { onAuthRequired?: () => void
                       <button type="button" className={styles.actionButton} onClick={() => void saveManualScore(account)} disabled={actionLoading || !account.auth_index}>{t('common.save')}</button>
                     </span>
                   </td>
-                  <td>{formatDateTime(account.codex_quota?.weekly?.reset_at)}</td>
+                  <td><span className={styles.timeCell}>{formatDateTime(nextQuotaResetTime(account))}</span></td>
+                  <td><span className={styles.timeCell}>{formatCodexNextRefreshTime(account)}</span></td>
                   <td>{formatCodexRefreshTime(account)}</td>
                 </tr>
               );
