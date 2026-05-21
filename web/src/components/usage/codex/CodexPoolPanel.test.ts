@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { CodexStateAccount } from '@/lib/types'
 import {
   currentCodexPoolAccount,
+  accountTypeLabel,
   filterCodexPoolAccounts,
   formatCodexQuotaPercent,
   formatCodexRefreshTime,
@@ -84,6 +85,12 @@ describe('CodexPoolPanel view helpers', () => {
 
     expect(filterCodexPoolAccounts(rows, 'team').map((row) => row.auth_index)).toEqual(['codex-beta'])
     expect(filterCodexPoolAccounts(rows, 'alpha').map((row) => row.auth_index)).toEqual(['codex-alpha'])
+  })
+
+  it('uses plan type for account badges and ignores auth method labels', () => {
+    expect(accountTypeLabel({ account_type: 'oauth', plan_type: 'plus' } as CodexStateAccount)).toBe('plus')
+    expect(accountTypeLabel({ account_type: 'oauth', id_token: { plan_type: 'team' } } as CodexStateAccount)).toBe('team')
+    expect(accountTypeLabel({ account_type: 'oauth' } as CodexStateAccount)).toBeUndefined()
   })
 
   it('localizes routing strategy labels for operators', () => {

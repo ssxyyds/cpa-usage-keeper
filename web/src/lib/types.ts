@@ -328,6 +328,7 @@ export interface CodexStateAccount {
   email?: string
   account?: string
   account_type?: string
+  plan_type?: string
   id_token?: {
     plan_type?: string
   }

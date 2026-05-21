@@ -27,6 +27,7 @@ Expected state payload:
       "name": "Codex Primary",
       "email": "user@example.com",
       "account_type": "team",
+      "plan_type": "team",
       "status": "active",
       "disabled": false,
       "unavailable": false,
@@ -88,7 +89,7 @@ The intended adjustment range is `-100` to `100`; CPA remains the authority that
 - If CPA marks an account as `on_device`, the table pins and highlights that current account above the score order.
 - The header displays CPA's current routing strategy, localized for Chinese operators.
 - The table has a quick search input for account id, auth index, email, name, and account type.
-- Account status is displayed under the account identity, alongside account type badges such as `free`, `team`, or `plus`.
+- Account status is displayed under the account identity, alongside plan/package badges such as `free`, `team`, or `plus`; auth method labels such as `oauth` are not shown as plan badges.
 - Weekly and five-hour quota values are displayed as remaining percentages with red/yellow/green pills.
 - Quota reset timestamps are displayed with urgency coloring; near reset is red.
 - The `Recent Refresh` column displays `codex_quota.last_refresh_at`; `refresh_status` remains available in the payload but is not used as the timestamp label.
