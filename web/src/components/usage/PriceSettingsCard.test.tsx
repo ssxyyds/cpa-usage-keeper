@@ -38,6 +38,9 @@ describe('buildPricingModelOptions', () => {
 
     expect(options.map((option) => option.value)).toEqual([
       '',
+      'gpt-5.4',
+      'gpt-5.4-mini',
+      'gpt-5.5',
       'unpriced-alpha',
       'unpriced-beta',
       'priced-alpha',
@@ -46,5 +49,22 @@ describe('buildPricingModelOptions', () => {
     expect(options.find((option) => option.value === 'unpriced-alpha')?.suffix).toBeUndefined();
     expect(options.find((option) => option.value === 'priced-alpha')?.suffix).toBe(configuredBadge);
     expect(options.find((option) => option.value === 'priced-alpha')?.suffixAriaLabel).toBe('Configured');
+  });
+
+  it('keeps default Codex models selectable even before they appear in usage', () => {
+    const options = buildPricingModelOptions(
+      [],
+      {},
+      'Select model',
+      configuredBadge,
+      'Configured',
+    );
+
+    expect(options.map((option) => option.value)).toEqual([
+      '',
+      'gpt-5.4',
+      'gpt-5.4-mini',
+      'gpt-5.5',
+    ]);
   });
 });

@@ -70,6 +70,29 @@ func TestUpsertModelPriceSettingCreatesAndUpdatesRow(t *testing.T) {
 	}
 }
 
+func TestListModelPriceSettingsIncludesCodexDefaults(t *testing.T) {
+	db := openPricingTestDatabase(t)
+
+	settings, err := ListModelPriceSettings(db)
+	if err != nil {
+		t.Fatalf("list pricing settings: %v", err)
+	}
+
+	byModel := make(map[string]entities.ModelPriceSetting, len(settings))
+	for _, setting := range settings {
+		byModel[setting.Model] = setting
+	}
+	if byModel["gpt-5.5"].PromptPricePer1M != 5 || byModel["gpt-5.5"].CompletionPricePer1M != 30 || byModel["gpt-5.5"].CachePricePer1M != 0.5 {
+		t.Fatalf("unexpected gpt-5.5 default pricing: %#v", byModel["gpt-5.5"])
+	}
+	if byModel["gpt-5.4"].PromptPricePer1M != 2.5 || byModel["gpt-5.4"].CompletionPricePer1M != 15 || byModel["gpt-5.4"].CachePricePer1M != 0.25 {
+		t.Fatalf("unexpected gpt-5.4 default pricing: %#v", byModel["gpt-5.4"])
+	}
+	if byModel["gpt-5.4-mini"].PromptPricePer1M != 0.75 || byModel["gpt-5.4-mini"].CompletionPricePer1M != 4.5 || byModel["gpt-5.4-mini"].CachePricePer1M != 0.075 {
+		t.Fatalf("unexpected gpt-5.4-mini default pricing: %#v", byModel["gpt-5.4-mini"])
+	}
+}
+
 func openPricingTestDatabase(t *testing.T) *gorm.DB {
 	t.Helper()
 	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "pricing.db")})

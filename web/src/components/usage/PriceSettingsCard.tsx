@@ -9,6 +9,8 @@ import { IconCheck } from '@/components/ui/icons';
 import type { ModelPrice } from '@/utils/usage';
 import styles from '@/pages/UsagePage.module.scss';
 
+const defaultCodexModels = ['gpt-5.4', 'gpt-5.4-mini', 'gpt-5.5'];
+
 const formatDisplayName = (value: string): string => {
   const normalized = value.trim();
   if (!normalized) return '-';
@@ -45,7 +47,7 @@ export const buildPricingModelOptions = (
   configuredLabel: string,
 ): SelectOption[] => {
   const configuredModels = new Set(Object.keys(modelPrices));
-  const sortedModelNames = [...modelNames].sort((left, right) => {
+  const sortedModelNames = [...new Set([...modelNames, ...defaultCodexModels])].sort((left, right) => {
     const leftConfigured = configuredModels.has(left);
     const rightConfigured = configuredModels.has(right);
     if (leftConfigured !== rightConfigured) return leftConfigured ? 1 : -1;

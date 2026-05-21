@@ -15,7 +15,12 @@ func (c *Client) FetchCodexState(ctx context.Context) (json.RawMessage, error) {
 
 func (c *Client) RefreshCodexState(ctx context.Context, authIndexes []string) (json.RawMessage, error) {
 	var raw json.RawMessage
-	body := map[string][]string{"auth_indexes": authIndexes}
+	var body any
+	if len(authIndexes) == 0 {
+		body = map[string]bool{"all": true}
+	} else {
+		body = map[string][]string{"auth_indexes": authIndexes}
+	}
 	_, _, err := c.doManagementJSONPostRequest(ctx, cpaManagementCodexStateRefreshEndpoint, body, &raw, "codex state refresh")
 	return raw, err
 }

@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import type { CodexStateAccount } from '@/lib/types'
-import { currentCodexPoolAccount, formatCodexNextRefreshTime, formatCodexRefreshTime, sortCodexPoolAccounts } from './CodexPoolPanel'
+import {
+  currentCodexPoolAccount,
+  filterCodexPoolAccounts,
+  formatCodexQuotaPercent,
+  formatCodexRefreshTime,
+  quotaPercentTone,
+  resetUrgencyTone,
+  routingStrategyLabel,
+  sortCodexPoolAccounts,
+} from './CodexPoolPanel'
 
 const account = (authIndex: string, score?: number): CodexStateAccount => ({
   auth_index: authIndex,
@@ -45,17 +54,40 @@ describe('CodexPoolPanel view helpers', () => {
     expect(label).toContain('2026')
   })
 
-  it('derives the next quota refresh from the next 15-minute boundary', () => {
+  it('formats quota as a remaining percentage with red-to-green tone buckets', () => {
     const row = {
       auth_index: 'codex-1',
       codex_quota: {
-        last_refresh_at: '2026-05-21T09:49:48Z',
+        weekly: { remaining: 80, limit: 100 },
       },
     } as CodexStateAccount
 
-    const label = formatCodexNextRefreshTime(row)
+    expect(formatCodexQuotaPercent(row, 'weekly')).toBe('80%')
+    expect(quotaPercentTone(0.8)).toBe('good')
+    expect(quotaPercentTone(0.3)).toBe('warning')
+    expect(quotaPercentTone(0.1)).toBe('danger')
+  })
 
-    expect(label).toContain('2026')
-    expect(label).not.toBe('-')
+  it('marks reset time as dangerous when it is close', () => {
+    const now = new Date('2026-05-21T10:00:00Z')
+
+    expect(resetUrgencyTone('2026-05-21T10:30:00Z', now)).toBe('danger')
+    expect(resetUrgencyTone('2026-05-21T16:30:00Z', now)).toBe('warning')
+    expect(resetUrgencyTone('2026-05-22T16:30:00Z', now)).toBe('good')
+  })
+
+  it('filters accounts by auth index, name, email, and account type', () => {
+    const rows = [
+      { auth_index: 'codex-alpha', email: 'a@example.com', account_type: 'free' },
+      { auth_index: 'codex-beta', name: 'Team Account', account_type: 'team' },
+    ] as CodexStateAccount[]
+
+    expect(filterCodexPoolAccounts(rows, 'team').map((row) => row.auth_index)).toEqual(['codex-beta'])
+    expect(filterCodexPoolAccounts(rows, 'alpha').map((row) => row.auth_index)).toEqual(['codex-alpha'])
+  })
+
+  it('localizes routing strategy labels for operators', () => {
+    expect(routingStrategyLabel('codex-quota-score')).toBe('Codex 额度评分')
+    expect(routingStrategyLabel('fill-first')).toBe('填充优先')
   })
 })

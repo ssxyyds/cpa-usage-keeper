@@ -10,6 +10,12 @@ import (
 	"gorm.io/gorm"
 )
 
+var defaultModelPriceSettings = []entities.ModelPriceSetting{
+	{Model: "gpt-5.4", PromptPricePer1M: 2.5, CompletionPricePer1M: 15, CachePricePer1M: 0.25},
+	{Model: "gpt-5.4-mini", PromptPricePer1M: 0.75, CompletionPricePer1M: 4.5, CachePricePer1M: 0.075},
+	{Model: "gpt-5.5", PromptPricePer1M: 5, CompletionPricePer1M: 30, CachePricePer1M: 0.5},
+}
+
 func ListUsedModels(db *gorm.DB) ([]string, error) {
 	if db == nil {
 		return nil, fmt.Errorf("database is nil")
@@ -38,7 +44,7 @@ func ListUsedModels(db *gorm.DB) ([]string, error) {
 		cleaned = append(cleaned, trimmed)
 	}
 	sort.Strings(cleaned)
-	return cleaned, nil
+	return MergeDefaultModelNamesForPricing(cleaned), nil
 }
 
 func ListModelPriceSettings(db *gorm.DB) ([]entities.ModelPriceSetting, error) {
@@ -50,7 +56,7 @@ func ListModelPriceSettings(db *gorm.DB) ([]entities.ModelPriceSetting, error) {
 	if err := db.Select("ID", "Model", "PromptPricePer1M", "CompletionPricePer1M", "CachePricePer1M", "CreatedAt", "UpdatedAt").Order("model asc").Find(&settings).Error; err != nil {
 		return nil, fmt.Errorf("list pricing settings: %w", err)
 	}
-	return settings, nil
+	return mergeDefaultModelPriceSettings(settings), nil
 }
 
 func UpsertModelPriceSetting(db *gorm.DB, input dto.ModelPriceSettingInput) (*entities.ModelPriceSetting, error) {
@@ -82,6 +88,54 @@ func UpsertModelPriceSetting(db *gorm.DB, input dto.ModelPriceSettingInput) (*en
 	}
 
 	return setting, nil
+}
+
+func MergeDefaultModelNamesForPricing(models []string) []string {
+	seen := make(map[string]struct{}, len(models)+len(defaultModelPriceSettings))
+	merged := make([]string, 0, len(models)+len(defaultModelPriceSettings))
+	for _, model := range models {
+		trimmed := strings.TrimSpace(model)
+		if trimmed == "" {
+			continue
+		}
+		if _, ok := seen[trimmed]; ok {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		merged = append(merged, trimmed)
+	}
+	for _, setting := range defaultModelPriceSettings {
+		if _, ok := seen[setting.Model]; ok {
+			continue
+		}
+		seen[setting.Model] = struct{}{}
+		merged = append(merged, setting.Model)
+	}
+	sort.Strings(merged)
+	return merged
+}
+
+func mergeDefaultModelPriceSettings(settings []entities.ModelPriceSetting) []entities.ModelPriceSetting {
+	mergedByModel := make(map[string]entities.ModelPriceSetting, len(settings)+len(defaultModelPriceSettings))
+	for _, setting := range defaultModelPriceSettings {
+		mergedByModel[setting.Model] = setting
+	}
+	for _, setting := range settings {
+		model := strings.TrimSpace(setting.Model)
+		if model == "" {
+			continue
+		}
+		setting.Model = model
+		mergedByModel[model] = setting
+	}
+	merged := make([]entities.ModelPriceSetting, 0, len(mergedByModel))
+	for _, setting := range mergedByModel {
+		merged = append(merged, setting)
+	}
+	sort.Slice(merged, func(i, j int) bool {
+		return merged[i].Model < merged[j].Model
+	})
+	return merged
 }
 
 func DeleteModelPriceSetting(db *gorm.DB, model string) error {

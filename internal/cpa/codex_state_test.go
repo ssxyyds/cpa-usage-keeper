@@ -59,6 +59,32 @@ func TestRefreshCodexStatePostsAuthIndexes(t *testing.T) {
 	}
 }
 
+func TestRefreshCodexStatePostsAllWhenAuthIndexesEmpty(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != cpaManagementCodexStateRefreshEndpoint {
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+		var body map[string]bool
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		if !body["all"] {
+			t.Fatalf("expected all refresh body, got %#v", body)
+		}
+		_, _ = w.Write([]byte(`{"accepted":true}`))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "management-secret", 2*time.Second, false)
+	payload, err := client.RefreshCodexState(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("RefreshCodexState returned error: %v", err)
+	}
+	if string(payload) != `{"accepted":true}` {
+		t.Fatalf("unexpected refresh payload: %s", payload)
+	}
+}
+
 func TestUpdateCodexManualScoreUsesPatch(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPatch || r.URL.Path != cpaManagementCodexManualScoreEndpoint {

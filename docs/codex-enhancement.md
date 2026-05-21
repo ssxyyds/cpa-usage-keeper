@@ -26,6 +26,7 @@ Expected state payload:
       "auth_index": "codex-auth-1",
       "name": "Codex Primary",
       "email": "user@example.com",
+      "account_type": "team",
       "status": "active",
       "disabled": false,
       "unavailable": false,
@@ -46,7 +47,8 @@ Expected state payload:
     "weekly": { "known": 92, "limit": 9200, "remaining": 7310, "remaining_ratio": 0.7945 },
     "five_hour": { "known": 88, "limit": 3520, "remaining": 870, "remaining_ratio": 0.2471 },
     "last_refresh_at": "2026-05-21T06:30:00Z"
-  }
+  },
+  "routing_strategy": "codex-quota-score"
 }
 ```
 
@@ -84,13 +86,27 @@ The intended adjustment range is `-100` to `100`; CPA remains the authority that
 
 - The account table is sorted by computed score descending by default, with unknown scores last.
 - If CPA marks an account as `on_device`, the table pins and highlights that current account above the score order.
+- The header displays CPA's current routing strategy, localized for Chinese operators.
+- The table has a quick search input for account id, auth index, email, name, and account type.
+- Account status is displayed under the account identity, alongside account type badges such as `free`, `team`, or `plus`.
+- Weekly and five-hour quota values are displayed as remaining percentages with red/yellow/green pills.
+- Quota reset timestamps are displayed with urgency coloring; near reset is red.
 - The `Recent Refresh` column displays `codex_quota.last_refresh_at`; `refresh_status` remains available in the payload but is not used as the timestamp label.
-- The `Next Refresh` column derives the next 15-minute quota refresh boundary from `codex_quota.last_refresh_at`.
 - `Score` uses `codex_computed_score` when present and falls back to live `codex_score_explanation.computed_score_live`.
 - `Manual adjust` is an additive score adjustment, not an independent routing weight.
 - Summary cards show active/total accounts, weekly quota, five-hour quota, disabled/cooldown counts, and the latest summary refresh time.
 - Manual score edits use `PATCH /api/v1/codex-state/manual-score`.
 - UI labels are localized through `usage_stats.codex_pool_*` keys.
+
+## Model Pricing Defaults
+
+The pricing UI and pricing repository include default USD-per-1M-token settings for Codex-focused models:
+
+- `gpt-5.5`: input `5`, output `30`, cached input `0.5`
+- `gpt-5.4`: input `2.5`, output `15`, cached input `0.25`
+- `gpt-5.4-mini`: input `0.75`, output `4.5`, cached input `0.075`
+
+Database rows still override these defaults when an operator saves custom values.
 
 ## Files To Preserve When Syncing Upstream
 

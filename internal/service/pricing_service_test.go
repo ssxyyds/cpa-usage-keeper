@@ -34,6 +34,21 @@ func TestPricingServiceRejectsUnusedModel(t *testing.T) {
 	}
 }
 
+func TestPricingServiceListsDefaultCodexModels(t *testing.T) {
+	db := openPricingServiceTestDatabase(t)
+	service := NewPricingService(db)
+
+	usedModels, err := service.ListUsedModels(context.Background())
+	if err != nil {
+		t.Fatalf("list used models: %v", err)
+	}
+
+	expected := []string{"gpt-5.4", "gpt-5.4-mini", "gpt-5.5"}
+	if strings.Join(usedModels, ",") != strings.Join(expected, ",") {
+		t.Fatalf("expected default models %#v, got %#v", expected, usedModels)
+	}
+}
+
 func TestPricingServiceStoresPricingForUsedModel(t *testing.T) {
 	db := openPricingServiceTestDatabase(t)
 	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{{
@@ -63,7 +78,8 @@ func TestPricingServiceStoresPricingForUsedModel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list used models: %v", err)
 	}
-	if len(usedModels) != 1 || usedModels[0] != "claude-sonnet" {
+	expectedModels := []string{"claude-sonnet", "gpt-5.4", "gpt-5.4-mini", "gpt-5.5"}
+	if strings.Join(usedModels, ",") != strings.Join(expectedModels, ",") {
 		t.Fatalf("unexpected used models: %#v", usedModels)
 	}
 }
@@ -91,7 +107,7 @@ func TestPricingServiceListsModelsFromCPAWhenAvailable(t *testing.T) {
 		t.Fatalf("list models: %v", err)
 	}
 
-	expected := []string{"alpha-model", "zeta-model"}
+	expected := []string{"alpha-model", "gpt-5.4", "gpt-5.4-mini", "gpt-5.5", "zeta-model"}
 	if strings.Join(modelsList, ",") != strings.Join(expected, ",") {
 		t.Fatalf("expected CPA models %#v, got %#v", expected, modelsList)
 	}
@@ -118,7 +134,8 @@ func TestPricingServiceFallsBackToLocalModelsWhenCPAFetchFails(t *testing.T) {
 		t.Fatalf("list models: %v", err)
 	}
 
-	if len(modelsList) != 1 || modelsList[0] != "local-model" {
+	expected := []string{"gpt-5.4", "gpt-5.4-mini", "gpt-5.5", "local-model"}
+	if strings.Join(modelsList, ",") != strings.Join(expected, ",") {
 		t.Fatalf("expected local fallback model, got %#v", modelsList)
 	}
 	if !strings.Contains(logs.String(), "level=error") {
@@ -148,8 +165,9 @@ func TestPricingServiceReturnsEmptyCPAListWithoutFallback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list models: %v", err)
 	}
-	if len(modelsList) != 0 {
-		t.Fatalf("expected empty CPA model list, got %#v", modelsList)
+	expected := []string{"gpt-5.4", "gpt-5.4-mini", "gpt-5.5"}
+	if strings.Join(modelsList, ",") != strings.Join(expected, ",") {
+		t.Fatalf("expected default CPA model list, got %#v", modelsList)
 	}
 }
 

@@ -326,6 +326,11 @@ export interface CodexStateAccount {
   auth_index?: string
   name?: string
   email?: string
+  account?: string
+  account_type?: string
+  id_token?: {
+    plan_type?: string
+  }
   provider?: string
   status?: string
   disabled?: boolean
@@ -362,6 +367,7 @@ export interface CodexPoolSummary {
 export interface CodexStateResponse {
   'codex-state': CodexStateAccount[]
   summary: CodexPoolSummary
+  routing_strategy?: string
 }
 
 export interface AnalysisTokenUsageBucket {

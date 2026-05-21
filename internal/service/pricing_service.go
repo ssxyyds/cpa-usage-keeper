@@ -114,5 +114,5 @@ func normalizeCPAModels(result *response.ModelsResult) []string {
 		models = append(models, id)
 	}
 	sort.Strings(models)
-	return models
+	return repository.MergeDefaultModelNamesForPricing(models)
 }
