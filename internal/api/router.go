@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"io/fs"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"cpa-usage-keeper/internal/codexpool"
 	"cpa-usage-keeper/internal/poller"
 	"cpa-usage-keeper/internal/quota"
 	"cpa-usage-keeper/internal/service"
@@ -32,6 +34,13 @@ type QuotaProvider interface {
 	GetRefreshTask(context.Context, string) (quota.RefreshTaskResponse, error)
 }
 
+type CodexStateProvider interface {
+	FetchCodexState(context.Context) (json.RawMessage, error)
+	RefreshCodexState(context.Context, []string) (json.RawMessage, error)
+	RecalculateCodexState(context.Context) (json.RawMessage, error)
+	UpdateCodexManualScore(context.Context, codexpool.ManualScoreRequest) (json.RawMessage, error)
+}
+
 type StatusRouteConfig struct {
 	CPAManagementURL string
 }
@@ -39,6 +48,7 @@ type StatusRouteConfig struct {
 type OptionalProviders struct {
 	UsageIdentity service.UsageIdentityProvider
 	Quota         QuotaProvider
+	CodexState    CodexStateProvider
 	CPAAPIKeys    service.CPAAPIKeyProvider
 	Status        StatusRouteConfig
 }
@@ -73,11 +83,13 @@ func NewRouter(
 
 	var usageIdentityProvider service.UsageIdentityProvider
 	var quotaProvider QuotaProvider
+	var codexStateProvider CodexStateProvider
 	var cpaAPIKeyProvider service.CPAAPIKeyProvider
 	var statusConfig StatusRouteConfig
 	if len(optionalProviders) > 0 {
 		usageIdentityProvider = optionalProviders[0].UsageIdentity
 		quotaProvider = optionalProviders[0].Quota
+		codexStateProvider = optionalProviders[0].CodexState
 		cpaAPIKeyProvider = optionalProviders[0].CPAAPIKeys
 		statusConfig = optionalProviders[0].Status
 	}
@@ -94,6 +106,7 @@ func NewRouter(
 	registerCPAAPIKeyRoutes(adminProtected, cpaAPIKeyProvider)
 	registerPricingRoutes(adminProtected, pricingProvider)
 	registerQuotaRoutes(adminProtected, quotaProvider)
+	registerCodexStateRoutes(adminProtected, codexStateProvider)
 
 	keyViewerProtected := apiV1.Group("")
 	keyViewerProtected.Use(authHandler.apiKeyViewerMiddleware())

@@ -77,6 +77,14 @@ func (c *Client) doManagementJSONRequest(ctx context.Context, path string, targe
 }
 
 func (c *Client) doManagementJSONPostRequest(ctx context.Context, path string, requestBody any, target any, kind string) (int, []byte, error) {
+	return c.doManagementJSONRequestWithMethod(ctx, http.MethodPost, path, requestBody, target, kind)
+}
+
+func (c *Client) doManagementJSONPatchRequest(ctx context.Context, path string, requestBody any, target any, kind string) (int, []byte, error) {
+	return c.doManagementJSONRequestWithMethod(ctx, http.MethodPatch, path, requestBody, target, kind)
+}
+
+func (c *Client) doManagementJSONRequestWithMethod(ctx context.Context, method string, path string, requestBody any, target any, kind string) (int, []byte, error) {
 	if c == nil {
 		return 0, nil, fmt.Errorf("cpa client is nil")
 	}
@@ -87,7 +95,7 @@ func (c *Client) doManagementJSONPostRequest(ctx context.Context, path string, r
 	if err != nil {
 		return 0, nil, fmt.Errorf("encode management %s json: %w", kind, err)
 	}
-	return c.doJSONRequestWithBody(ctx, http.MethodPost, path, body, target, "management "+kind, func(req *http.Request) {
+	return c.doJSONRequestWithBody(ctx, method, path, body, target, "management "+kind, func(req *http.Request) {
 		req.Header.Set("Authorization", "Bearer "+c.managementKey)
 		req.Header.Set("Content-Type", "application/json")
 	})

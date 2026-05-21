@@ -1,4 +1,4 @@
-import { type AnalysisResponse, type AuthSessionResponse, type CpaApiKeyOptionsResponse, type CpaApiKeySettingsItem, type CpaApiKeysResponse, type KeyOverviewTimeRange, type PricingEntry, type PricingResponse, type StatusResponse, type UpdateCheckResponse, type UsageEventModelFilterOptionsResponse, type UsageEventSourceFilterOptionsResponse, type UsedModelsResponse, type UsageIdentitiesPageResponse, type UsageIdentitiesResponse, type UsageEventsResponse, type UsageIdentityAuthType, type UsageOverviewResponse, type UsageQuotaCacheResponse, type UsageQuotaRefreshResponse, type UsageQuotaRefreshTaskResponse } from './types'
+import { type AnalysisResponse, type AuthSessionResponse, type CodexStateResponse, type CpaApiKeyOptionsResponse, type CpaApiKeySettingsItem, type CpaApiKeysResponse, type KeyOverviewTimeRange, type PricingEntry, type PricingResponse, type StatusResponse, type UpdateCheckResponse, type UsageEventModelFilterOptionsResponse, type UsageEventSourceFilterOptionsResponse, type UsedModelsResponse, type UsageIdentitiesPageResponse, type UsageIdentitiesResponse, type UsageEventsResponse, type UsageIdentityAuthType, type UsageOverviewResponse, type UsageQuotaCacheResponse, type UsageQuotaRefreshResponse, type UsageQuotaRefreshTaskResponse } from './types'
 
 export class ApiError extends Error {
   status: number
@@ -273,6 +273,54 @@ export async function fetchUsageQuotaRefreshTask(taskId: string, signal?: AbortS
   const response = await apiFetch(apiPath(`/quota/refresh/${encodeURIComponent(taskId)}`), { signal })
   if (!response.ok) {
     await parseApiError(response, `Failed to load usage quota refresh task: ${response.status}`)
+  }
+  return response.json()
+}
+
+export async function fetchCodexState(signal?: AbortSignal): Promise<CodexStateResponse> {
+  const response = await apiFetch(apiPath('/codex-state'), { signal, cache: 'no-store' })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to load Codex pool state: ${response.status}`)
+  }
+  return response.json()
+}
+
+export async function refreshCodexState(authIndexes: string[] = [], signal?: AbortSignal): Promise<unknown> {
+  const response = await apiFetch(apiPath('/codex-state/refresh'), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ auth_indexes: authIndexes }),
+    signal,
+  })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to refresh Codex pool state: ${response.status}`)
+  }
+  return response.json()
+}
+
+export async function recalculateCodexState(signal?: AbortSignal): Promise<unknown> {
+  const response = await apiFetch(apiPath('/codex-state/recalc'), {
+    method: 'POST',
+    signal,
+  })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to recalculate Codex pool state: ${response.status}`)
+  }
+  return response.json()
+}
+
+export async function updateCodexManualScore(authIndex: string, adjustment: number): Promise<unknown> {
+  const response = await apiFetch(apiPath('/codex-state/manual-score'), {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ auth_index: authIndex, adjustment }),
+  })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to update Codex manual score: ${response.status}`)
   }
   return response.json()
 }

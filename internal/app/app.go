@@ -149,6 +149,7 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 			api.OptionalProviders{
 				UsageIdentity: usageIdentityService,
 				Quota:         quotaService,
+				CodexState:    cpaClient,
 				CPAAPIKeys:    cpaAPIKeyService,
 				Status:        api.StatusRouteConfig{CPAManagementURL: api.BuildCPAManagementURL(cfg.CPABaseURL)},
 			},

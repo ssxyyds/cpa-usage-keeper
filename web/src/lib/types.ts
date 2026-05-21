@@ -294,6 +294,75 @@ export interface UsageQuotaRefreshResponse {
   limit: number
 }
 
+export interface CodexQuotaWindowState {
+  remaining?: number
+  limit?: number
+  reset_at?: string
+}
+
+export interface CodexQuotaState {
+  five_hour?: CodexQuotaWindowState
+  weekly?: CodexQuotaWindowState
+  last_refresh_at?: string
+  refresh_status?: string
+  probe_status?: string
+}
+
+export interface CodexScoreExplanation {
+  score_available?: boolean
+  computed_score_live?: number
+  weekly_remaining?: number
+  weekly_limit?: number
+  hours_until_weekly_reset?: number
+  expiry_urgency_bonus?: number
+  manual_adjustment?: number
+  refresh_is_fresh?: boolean
+  formula_label?: string
+}
+
+export interface CodexStateAccount {
+  id?: string
+  auth_index?: string
+  name?: string
+  email?: string
+  provider?: string
+  status?: string
+  disabled?: boolean
+  unavailable?: boolean
+  on_device?: boolean
+  codex_quota?: CodexQuotaState
+  codex_score_explanation?: CodexScoreExplanation
+  codex_manual_score_adjustment?: number
+  codex_computed_score?: number
+  codex_score_reason?: string
+  codex_last_selection_reason?: string
+}
+
+export interface CodexPoolSummaryBucket {
+  known?: number
+  limit?: number
+  remaining?: number
+  remaining_ratio?: number
+}
+
+export interface CodexPoolSummary {
+  accounts?: {
+    total?: number
+    active?: number
+    cooldown?: number
+    unavailable?: number
+    disabled?: number
+  }
+  weekly?: CodexPoolSummaryBucket
+  five_hour?: CodexPoolSummaryBucket
+  last_refresh_at?: string
+}
+
+export interface CodexStateResponse {
+  'codex-state': CodexStateAccount[]
+  summary: CodexPoolSummary
+}
+
 export interface AnalysisTokenUsageBucket {
   bucket: string
   input_tokens: number

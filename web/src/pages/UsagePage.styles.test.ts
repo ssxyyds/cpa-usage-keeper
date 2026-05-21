@@ -1,8 +1,10 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
-const usagePageStyles = readFileSync(new URL('./UsagePage.module.scss', import.meta.url), 'utf8')
-const usagePageSource = readFileSync(new URL('./UsagePage.tsx', import.meta.url), 'utf8')
+const normalizeSource = (value: string) => value.replace(/\r\n/g, '\n')
+
+const usagePageStyles = normalizeSource(readFileSync(new URL('./UsagePage.module.scss', import.meta.url), 'utf8'))
+const usagePageSource = normalizeSource(readFileSync(new URL('./UsagePage.tsx', import.meta.url), 'utf8'))
 const requestEventsSource = readFileSync(new URL('../components/usage/RequestEventsDetailsCard.tsx', import.meta.url), 'utf8')
 const priceSettingsSource = readFileSync(new URL('../components/usage/PriceSettingsCard.tsx', import.meta.url), 'utf8')
 const chartLineSelectorSource = readFileSync(new URL('../components/usage/ChartLineSelector.tsx', import.meta.url), 'utf8')
@@ -52,7 +54,7 @@ describe('UsagePage toolbar styles', () => {
     expect(i18nSource).not.toContain("tab_analysis: 'API & Models'")
     expect(i18nSource).not.toContain("tab_analysis: 'API 与模型'")
     expect(i18nSource).not.toContain("tab_analysis: 'API 與模型'")
-    expect(usagePageSource).toContain("const USAGE_TAB_OPTIONS = ['overview', 'analysis', 'events', 'credentials', 'settings'] as const")
+    expect(usagePageSource).toContain("const USAGE_TAB_OPTIONS = ['overview', 'analysis', 'events', 'credentials', 'codex', 'settings'] as const")
   })
 
   it('keeps Sign out as the rightmost header action after Check Updates', () => {

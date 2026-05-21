@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { appPath, fetchAnalysis, fetchCpaApiKeyOptions, fetchCpaApiKeys, fetchKeyOverview, fetchUsageOverview, fetchUsageQuotaCache, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchUsageIdentities, fetchUsageIdentitiesPage, fetchUsageQuotaRefreshTask, loginWithCPAAPIKey, logout, refreshUsageQuotas, updateCpaApiKeyAlias } from './api';
+import { appPath, fetchAnalysis, fetchCodexState, fetchCpaApiKeyOptions, fetchCpaApiKeys, fetchKeyOverview, fetchUsageOverview, fetchUsageQuotaCache, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchUsageIdentities, fetchUsageIdentitiesPage, fetchUsageQuotaRefreshTask, loginWithCPAAPIKey, logout, recalculateCodexState, refreshCodexState, refreshUsageQuotas, updateCodexManualScore, updateCpaApiKeyAlias } from './api';
 
 describe('fetchUsageEvents', () => {
   afterEach(() => {
@@ -409,6 +409,45 @@ describe('fetchUsageEvents', () => {
     expect(response.quota?.id).toBe('auth-1');
     expect(parsed.pathname).toBe('/api/v1/quota/refresh/task-1');
     expect(init).toMatchObject({ credentials: 'include', signal });
+  });
+
+  it('loads and mutates Codex pool state through local protected endpoints', async () => {
+    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ 'codex-state': [{ auth_index: 'codex-1' }], summary: { weekly: { remaining: 42 } } }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ accepted: 1 }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ ok: true }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ ok: true }),
+      } as Response);
+    const signal = new AbortController().signal;
+
+    const state = await fetchCodexState(signal);
+    await refreshCodexState(['codex-1'], signal);
+    await recalculateCodexState(signal);
+    await updateCodexManualScore('codex-1', 25);
+
+    expect(state.summary.weekly.remaining).toBe(42);
+    expect(new URL(String(fetchMock.mock.calls[0][0]), 'http://localhost').pathname).toBe('/api/v1/codex-state');
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ credentials: 'include', signal, cache: 'no-store' });
+    expect(new URL(String(fetchMock.mock.calls[1][0]), 'http://localhost').pathname).toBe('/api/v1/codex-state/refresh');
+    expect(fetchMock.mock.calls[1][1]).toMatchObject({ credentials: 'include', method: 'POST', signal });
+    expect(fetchMock.mock.calls[1][1]?.body).toBe(JSON.stringify({ auth_indexes: ['codex-1'] }));
+    expect(new URL(String(fetchMock.mock.calls[2][0]), 'http://localhost').pathname).toBe('/api/v1/codex-state/recalc');
+    expect(fetchMock.mock.calls[2][1]).toMatchObject({ credentials: 'include', method: 'POST', signal });
+    expect(new URL(String(fetchMock.mock.calls[3][0]), 'http://localhost').pathname).toBe('/api/v1/codex-state/manual-score');
+    expect(fetchMock.mock.calls[3][1]).toMatchObject({ credentials: 'include', method: 'PATCH' });
+    expect(fetchMock.mock.calls[3][1]?.body).toBe(JSON.stringify({ auth_index: 'codex-1', adjustment: 25 }));
   });
 
   it('loads update check status from the protected endpoint', async () => {

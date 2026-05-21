@@ -11,6 +11,10 @@ const (
 	cpaManagementOpenAICompatibilityEndpoint = "/v0/management/openai-compatibility"
 	cpaManagementUsageQueueEndpoint          = "/v0/management/usage-queue"
 	cpaManagementAPICallEndpoint             = "/v0/management/api-call"
+	cpaManagementCodexStateEndpoint          = "/v0/management/codex-state"
+	cpaManagementCodexStateRefreshEndpoint   = "/v0/management/codex-state/refresh"
+	cpaManagementCodexStateRecalcEndpoint    = "/v0/management/codex-state/recalc"
+	cpaManagementCodexManualScoreEndpoint    = "/v0/management/codex-state/manual-score"
 	cpaModelsEndpoint                        = "/v1/models"
 
 	cpaManagementRedisNetwork     = "tcp"

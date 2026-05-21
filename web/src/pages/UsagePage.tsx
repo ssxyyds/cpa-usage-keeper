@@ -32,6 +32,7 @@ import {
   PriceSettingsCard,
   AuthFileCredentialsSection,
   AiProviderCredentialsSection,
+  CodexPoolPanel,
   RequestEventsDetailsCard,
   TokenBreakdownChart,
   CostTrendChart,
@@ -99,7 +100,7 @@ const THEME_OPTIONS: ReadonlyArray<{ value: Theme; labelKey: string }> = [
   { value: 'dark', labelKey: 'usage_stats.theme_dark' },
   { value: 'auto', labelKey: 'usage_stats.theme_auto' }
 ];
-const USAGE_TAB_OPTIONS = ['overview', 'analysis', 'events', 'credentials', 'settings'] as const;
+const USAGE_TAB_OPTIONS = ['overview', 'analysis', 'events', 'credentials', 'codex', 'settings'] as const;
 type UsageTab = (typeof USAGE_TAB_OPTIONS)[number];
 type Translate = (key: string) => string;
 const USAGE_TAB_LABEL_KEYS: Record<UsageTab, string> = {
@@ -107,6 +108,7 @@ const USAGE_TAB_LABEL_KEYS: Record<UsageTab, string> = {
   analysis: 'usage_stats.tab_analysis',
   events: 'usage_stats.tab_events',
   credentials: 'usage_stats.tab_credentials',
+  codex: 'usage_stats.tab_codex_pool',
   settings: 'usage_stats.tab_settings',
 };
 const DEFAULT_USAGE_TAB: UsageTab = 'overview';
@@ -116,7 +118,7 @@ const REQUEST_EVENTS_DEFAULT_PAGE_SIZE = 100;
 const ALL_REQUEST_EVENTS_FILTER = '__all__';
 const OVERVIEW_AUTO_REFRESH_INTERVAL_MS = 10_000;
 
-export const shouldShowRangeControls = (tab: UsageTab) => tab !== 'settings' && tab !== 'credentials';
+export const shouldShowRangeControls = (tab: UsageTab) => tab !== 'settings' && tab !== 'credentials' && tab !== 'codex';
 
 export const shouldShowApiKeyFilter = (tab: UsageTab) => shouldShowRangeControls(tab);
 
@@ -990,6 +992,9 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       await refreshCredentials();
       return;
     }
+    if (activeTab === 'codex') {
+      return;
+    }
     if (activeTab === 'analysis') {
       await loadAnalysis();
       return;
@@ -1618,6 +1623,10 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   />
                 </div>
               </>
+            )}
+
+            {activeTab === 'codex' && (
+              <CodexPoolPanel onAuthRequired={onAuthRequired} />
             )}
 
             {activeTab === 'settings' && (
