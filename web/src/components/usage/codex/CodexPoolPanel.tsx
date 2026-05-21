@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ApiError, fetchCodexState, recalculateCodexState, refreshCodexState, updateCodexManualScore } from '@/lib/api';
 import type { CodexPoolSummaryBucket, CodexStateAccount, CodexStateResponse } from '@/lib/types';
 import { IconRefreshCw } from '@/components/ui/icons';
@@ -25,7 +26,33 @@ function quotaValue(account: CodexStateAccount, window: 'weekly' | 'five_hour') 
   return `${formatNumber(quota?.remaining)} / ${formatNumber(quota?.limit)}`;
 }
 
+function finiteScore(account: CodexStateAccount) {
+  return Number.isFinite(account.codex_computed_score) ? account.codex_computed_score : undefined;
+}
+
+export function sortCodexPoolAccounts(accounts: CodexStateAccount[]): CodexStateAccount[] {
+  return [...accounts].sort((left, right) => {
+    if (Boolean(left.on_device) !== Boolean(right.on_device)) return left.on_device ? -1 : 1;
+    const leftScore = finiteScore(left);
+    const rightScore = finiteScore(right);
+    if (leftScore === undefined && rightScore === undefined) return accountKey(left).localeCompare(accountKey(right));
+    if (leftScore === undefined) return 1;
+    if (rightScore === undefined) return -1;
+    if (leftScore === rightScore) return accountKey(left).localeCompare(accountKey(right));
+    return rightScore - leftScore;
+  });
+}
+
+export function currentCodexPoolAccount(accounts: CodexStateAccount[]): CodexStateAccount | undefined {
+  return accounts.find((account) => account.on_device);
+}
+
+export function formatCodexRefreshTime(account: CodexStateAccount): string {
+  return formatDateTime(account.codex_quota?.last_refresh_at);
+}
+
 export function CodexPoolPanel({ onAuthRequired }: { onAuthRequired?: () => void }) {
+  const { t } = useTranslation();
   const [state, setState] = useState<CodexStateResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
@@ -33,7 +60,8 @@ export function CodexPoolPanel({ onAuthRequired }: { onAuthRequired?: () => void
   const [scoreDrafts, setScoreDrafts] = useState<Record<string, string>>({});
   const requestRef = useRef<AbortController | null>(null);
 
-  const accounts = useMemo(() => state?.['codex-state'] ?? [], [state]);
+  const accounts = useMemo(() => sortCodexPoolAccounts(state?.['codex-state'] ?? []), [state]);
+  const currentAccount = useMemo(() => currentCodexPoolAccount(accounts), [accounts]);
   const summary = state?.summary;
 
   const loadState = useCallback(async () => {
@@ -56,14 +84,14 @@ export function CodexPoolPanel({ onAuthRequired }: { onAuthRequired?: () => void
         onAuthRequired?.();
         return;
       }
-      setError(err instanceof Error ? err.message : 'Unable to load Codex pool state');
+      setError(err instanceof Error ? err.message : t('usage_stats.codex_pool_load_failed'));
     } finally {
       if (requestRef.current === controller) {
         requestRef.current = null;
       }
       setLoading(false);
     }
-  }, [onAuthRequired]);
+  }, [onAuthRequired, t]);
 
   useEffect(() => {
     void loadState();
@@ -81,11 +109,11 @@ export function CodexPoolPanel({ onAuthRequired }: { onAuthRequired?: () => void
         onAuthRequired?.();
         return;
       }
-      setError(err instanceof Error ? err.message : 'Codex pool action failed');
+      setError(err instanceof Error ? err.message : t('usage_stats.codex_pool_action_failed'));
     } finally {
       setActionLoading(false);
     }
-  }, [loadState, onAuthRequired]);
+  }, [loadState, onAuthRequired, t]);
 
   const saveManualScore = useCallback(async (account: CodexStateAccount) => {
     const key = accountKey(account);
@@ -101,49 +129,57 @@ export function CodexPoolPanel({ onAuthRequired }: { onAuthRequired?: () => void
       <header className={styles.header}>
         <div className={styles.titleBlock}>
           <p className={styles.eyebrow}>Codex</p>
-          <h2 className={styles.title}>Codex Pool</h2>
-          <p className={styles.subtitle}>Quota, score, reset, and manual routing weight from the enhanced CPA Codex state API.</p>
+          <h2 className={styles.title}>{t('usage_stats.codex_pool_title')}</h2>
+          <p className={styles.subtitle}>{t('usage_stats.codex_pool_subtitle')}</p>
         </div>
         <div className={styles.actions}>
           <button type="button" className={styles.actionButton} onClick={() => void loadState()} disabled={loading || actionLoading}>
             {loading ? <LoadingSpinner size={12} /> : <IconRefreshCw size={14} />}
-            <span>Reload</span>
+            <span>{t('usage_stats.codex_pool_reload')}</span>
           </button>
           <button type="button" className={styles.actionButton} onClick={() => void runAction(() => refreshCodexState())} disabled={loading || actionLoading}>
-            <span>{actionLoading ? 'Working' : 'Refresh Quota'}</span>
+            <span>{actionLoading ? t('usage_stats.codex_pool_working') : t('usage_stats.codex_pool_refresh_quota')}</span>
           </button>
           <button type="button" className={styles.actionButton} onClick={() => void runAction(() => recalculateCodexState())} disabled={loading || actionLoading}>
-            <span>Recalculate</span>
+            <span>{t('usage_stats.codex_pool_recalculate')}</span>
           </button>
         </div>
       </header>
 
       {error && <div className={styles.error}>{error}</div>}
 
+      {currentAccount && (
+        <div className={styles.currentAccountBanner}>
+          <span className={styles.currentAccountLabel}>{t('usage_stats.codex_pool_current_account')}</span>
+          <strong>{currentAccount.name || currentAccount.email || currentAccount.auth_index || currentAccount.id || '-'}</strong>
+          <span>{currentAccount.auth_index || currentAccount.id || '-'}</span>
+        </div>
+      )}
+
       <div className={styles.summaryGrid}>
         <div className={styles.summaryItem}>
-          <div className={styles.summaryLabel}>Accounts</div>
+          <div className={styles.summaryLabel}>{t('usage_stats.codex_pool_accounts')}</div>
           <div className={styles.summaryValue}>{formatNumber(summary?.accounts?.active)} / {formatNumber(summary?.accounts?.total)}</div>
-          <div className={styles.summaryHint}>unavailable {formatNumber(summary?.accounts?.unavailable)}</div>
+          <div className={styles.summaryHint}>{t('usage_stats.codex_pool_unavailable', { count: formatNumber(summary?.accounts?.unavailable) })}</div>
         </div>
         <div className={styles.summaryItem}>
-          <div className={styles.summaryLabel}>Weekly Remaining</div>
+          <div className={styles.summaryLabel}>{t('usage_stats.codex_pool_weekly_remaining')}</div>
           <div className={styles.summaryValue}>{bucketValue(summary?.weekly)}</div>
-          <div className={styles.summaryHint}>{formatRatio(summary?.weekly?.remaining_ratio)} known {formatNumber(summary?.weekly?.known)}</div>
+          <div className={styles.summaryHint}>{t('usage_stats.codex_pool_known_ratio', { ratio: formatRatio(summary?.weekly?.remaining_ratio), count: formatNumber(summary?.weekly?.known) })}</div>
         </div>
         <div className={styles.summaryItem}>
-          <div className={styles.summaryLabel}>5h Remaining</div>
+          <div className={styles.summaryLabel}>{t('usage_stats.codex_pool_five_hour_remaining')}</div>
           <div className={styles.summaryValue}>{bucketValue(summary?.five_hour)}</div>
-          <div className={styles.summaryHint}>{formatRatio(summary?.five_hour?.remaining_ratio)} known {formatNumber(summary?.five_hour?.known)}</div>
+          <div className={styles.summaryHint}>{t('usage_stats.codex_pool_known_ratio', { ratio: formatRatio(summary?.five_hour?.remaining_ratio), count: formatNumber(summary?.five_hour?.known) })}</div>
         </div>
         <div className={styles.summaryItem}>
-          <div className={styles.summaryLabel}>Disabled</div>
+          <div className={styles.summaryLabel}>{t('usage_stats.codex_pool_disabled')}</div>
           <div className={styles.summaryValue}>{formatNumber(summary?.accounts?.disabled)}</div>
-          <div className={styles.summaryHint}>cooldown {formatNumber(summary?.accounts?.cooldown)}</div>
+          <div className={styles.summaryHint}>{t('usage_stats.codex_pool_cooldown', { count: formatNumber(summary?.accounts?.cooldown) })}</div>
         </div>
         <div className={styles.summaryItem}>
-          <div className={styles.summaryLabel}>Last Refresh</div>
-          <div className={styles.summaryValue}>{summary?.last_refresh_at ? 'Ready' : '-'}</div>
+          <div className={styles.summaryLabel}>{t('usage_stats.codex_pool_last_refresh')}</div>
+          <div className={styles.summaryValue}>{summary?.last_refresh_at ? t('status_bar.success_short') : '-'}</div>
           <div className={styles.summaryHint}>{formatDateTime(summary?.last_refresh_at)}</div>
         </div>
       </div>
@@ -152,31 +188,34 @@ export function CodexPoolPanel({ onAuthRequired }: { onAuthRequired?: () => void
         <table className={styles.table}>
           <thead>
             <tr>
-              <th>Account</th>
-              <th>Status</th>
-              <th>Weekly</th>
-              <th>5h</th>
-              <th>Score</th>
-              <th>Manual</th>
-              <th>Weekly Reset</th>
-              <th>Refresh</th>
+              <th>{t('usage_stats.codex_pool_account')}</th>
+              <th>{t('usage_stats.codex_pool_status')}</th>
+              <th>{t('usage_stats.codex_pool_weekly')}</th>
+              <th>{t('usage_stats.codex_pool_five_hour')}</th>
+              <th>{t('usage_stats.codex_pool_score')}</th>
+              <th>{t('usage_stats.codex_pool_manual')}</th>
+              <th>{t('usage_stats.codex_pool_weekly_reset')}</th>
+              <th>{t('usage_stats.codex_pool_recent_refresh')}</th>
             </tr>
           </thead>
           <tbody>
             {accounts.map((account) => {
               const key = accountKey(account);
               return (
-                <tr key={key}>
+                <tr key={key} className={account.on_device ? styles.currentRow : undefined}>
                   <td>
                     <div className={styles.identity}>
-                      <span className={styles.identityName}>{account.name || account.email || account.auth_index || account.id || '-'}</span>
+                      <span className={styles.identityName}>
+                        {account.name || account.email || account.auth_index || account.id || '-'}
+                        {account.on_device && <span className={styles.currentBadge}>{t('usage_stats.codex_pool_current_badge')}</span>}
+                      </span>
                       <span className={styles.identityMeta}>{account.auth_index || account.id || '-'}</span>
                     </div>
                   </td>
-                  <td><span className={styles.statusBadge}>{account.disabled ? 'disabled' : account.unavailable ? 'unavailable' : account.status || 'active'}</span></td>
+                  <td><span className={`${styles.statusBadge} ${account.disabled || account.unavailable ? styles.statusBadgeMuted : styles.statusBadgeActive}`.trim()}>{account.disabled ? t('usage_stats.codex_pool_status_disabled') : account.unavailable ? t('usage_stats.codex_pool_status_unavailable') : account.status || t('usage_stats.codex_pool_status_active')}</span></td>
                   <td><span className={styles.number}>{quotaValue(account, 'weekly')}</span></td>
                   <td><span className={styles.number}>{quotaValue(account, 'five_hour')}</span></td>
-                  <td><span className={styles.number}>{formatNumber(account.codex_computed_score)}</span></td>
+                  <td><span className={styles.scoreBadge}>{formatNumber(account.codex_computed_score)}</span></td>
                   <td>
                     <span className={styles.scoreControl}>
                       <input
@@ -187,11 +226,11 @@ export function CodexPoolPanel({ onAuthRequired }: { onAuthRequired?: () => void
                         value={scoreDrafts[key] ?? '0'}
                         onChange={(event) => setScoreDrafts((current) => ({ ...current, [key]: event.target.value }))}
                       />
-                      <button type="button" className={styles.actionButton} onClick={() => void saveManualScore(account)} disabled={actionLoading || !account.auth_index}>Save</button>
+                      <button type="button" className={styles.actionButton} onClick={() => void saveManualScore(account)} disabled={actionLoading || !account.auth_index}>{t('common.save')}</button>
                     </span>
                   </td>
                   <td>{formatDateTime(account.codex_quota?.weekly?.reset_at)}</td>
-                  <td>{account.codex_quota?.refresh_status || '-'}</td>
+                  <td>{formatCodexRefreshTime(account)}</td>
                 </tr>
               );
             })}
@@ -199,7 +238,7 @@ export function CodexPoolPanel({ onAuthRequired }: { onAuthRequired?: () => void
         </table>
       </div>
 
-      {!loading && accounts.length === 0 && !error && <div className={styles.empty}>No Codex account state yet.</div>}
+      {!loading && accounts.length === 0 && !error && <div className={styles.empty}>{t('usage_stats.codex_pool_empty')}</div>}
     </section>
   );
 }

@@ -84,6 +84,17 @@ The intended adjustment range is `-100` to `100`; CPA remains the authority that
 
 When sorting by Codex score, the frontend loads all auth file identities and performs local sorting/pagination after merging `codex-state`. This avoids sorting only the current server page when the pool has more than one page of accounts.
 
+## Codex Pool Integration
+
+`Usage -> Codex Pool` is the Codex-specific operator view:
+
+- The account table is sorted by computed score descending by default, with unknown scores last.
+- If CPA marks an account as `on_device`, the table pins and highlights that current account above the score order.
+- The `Recent Refresh` column displays `codex_quota.last_refresh_at`; `refresh_status` remains available in the payload but is not used as the timestamp label.
+- Summary cards show active/total accounts, weekly quota, five-hour quota, disabled/cooldown counts, and the latest summary refresh time.
+- Manual score edits use the same `PATCH /api/v1/codex-state/manual-score` endpoint as the Credentials view.
+- UI labels are localized through `usage_stats.codex_pool_*` keys.
+
 ## Files To Preserve When Syncing Upstream
 
 Backend:

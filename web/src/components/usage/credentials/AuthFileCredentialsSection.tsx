@@ -85,7 +85,7 @@ export function AuthFileCredentialsSection({ rows, total, page, totalPages, page
                 {row.totalTokens > 0 && <MetricPill label={t('usage_stats.total_tokens')} value={formatCredentialNumber(row.totalTokens)} />}
                 {row.cacheRate !== null && <MetricPill label={t('usage_stats.cache_rate')} value={<TonePercent value={row.cacheRate} tone={cacheRateTone(row.cacheRate)} />} />}
                 {(row.codexScore !== undefined || row.typeLabel.toLowerCase() === 'codex' || row.providerLabel.toLowerCase() === 'codex') && (
-                  <MetricPill label={t('usage_stats.credentials_codex_score')} value={<CodexScoreMetric row={row} onSave={onUpdateCodexManualScore} />} />
+                  <MetricPill className={styles.credentialCodexScorePill} label={t('usage_stats.credentials_codex_score')} value={<CodexScoreMetric row={row} onSave={onUpdateCodexManualScore} />} />
                 )}
               </>
             )}

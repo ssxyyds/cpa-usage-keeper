@@ -3,8 +3,9 @@
 
 .codexPanel {
   border: 1px solid var(--border-color);
-  border-radius: 20px;
-  background: var(--bg-primary);
+  border-radius: 24px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--bg-primary) 96%, rgba($primary-color, 0.04)), var(--bg-primary));
   box-shadow: 0 18px 44px rgba(15, 23, 42, 0.07);
   overflow: hidden;
 }
@@ -28,7 +29,14 @@
 }
 
 .eyebrow {
-  margin: 0 0 8px;
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  margin: 0 0 10px;
+  padding: 4px 9px;
+  border: 1px solid rgba($primary-color, 0.2);
+  border-radius: $radius-full;
+  background: rgba($primary-color, 0.08);
   color: var(--text-tertiary);
   font-size: 11px;
   font-weight: 800;
@@ -61,17 +69,27 @@
 .actionButton {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 7px;
   min-height: 34px;
   padding: 0 12px;
   border: 1px solid var(--border-color);
   border-radius: 999px;
-  background: var(--bg-secondary);
+  background: color-mix(in srgb, var(--bg-secondary) 86%, transparent);
   color: var(--text-primary);
   font: inherit;
   font-size: 12px;
   font-weight: 800;
   cursor: pointer;
+  white-space: nowrap;
+  transition: transform 0.15s ease, border-color 0.15s ease, color 0.15s ease, background-color 0.15s ease;
+
+  &:hover:not(:disabled) {
+    transform: translateY(-1px);
+    border-color: color-mix(in srgb, var(--primary-color) 45%, var(--border-color));
+    background: color-mix(in srgb, var(--primary-color) 8%, var(--bg-primary));
+    color: var(--primary-color);
+  }
 
   &:disabled {
     cursor: wait;
@@ -96,12 +114,57 @@
   }
 }
 
+.currentAccountBanner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 22px;
+  border-bottom: 1px solid color-mix(in srgb, #16a34a 26%, var(--border-color));
+  background: color-mix(in srgb, #16a34a 8%, var(--bg-primary));
+  color: var(--text-secondary);
+  font-size: 12px;
+
+  strong {
+    color: var(--text-primary);
+    font-weight: 900;
+  }
+
+  span:last-child {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    color: var(--text-tertiary);
+  }
+
+  @include mobile {
+    align-items: flex-start;
+    flex-direction: column;
+    padding: 10px 18px;
+  }
+}
+
+.currentAccountLabel,
+.currentBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, #16a34a 38%, var(--border-color));
+  background: color-mix(in srgb, #16a34a 12%, var(--bg-primary));
+  color: #15803d;
+  font-size: 10px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
 .summaryItem {
   min-width: 0;
   padding: 11px 12px;
-  border: 1px solid var(--border-color);
+  border: 1px solid color-mix(in srgb, var(--border-color) 82%, var(--primary-color));
   border-radius: 12px;
-  background: var(--bg-secondary);
+  background: color-mix(in srgb, var(--bg-secondary) 78%, var(--bg-primary));
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--primary-color) 45%, transparent);
 }
 
 .summaryLabel {
@@ -152,6 +215,19 @@
   text-transform: uppercase;
 }
 
+.table tbody tr {
+  transition: background-color 0.15s ease;
+}
+
+.table tbody tr:hover {
+  background: color-mix(in srgb, var(--primary-color) 5%, var(--bg-primary));
+}
+
+.currentRow {
+  background: color-mix(in srgb, #16a34a 7%, var(--bg-primary));
+  box-shadow: inset 3px 0 0 color-mix(in srgb, #16a34a 70%, transparent);
+}
+
 .identity {
   display: flex;
   flex-direction: column;
@@ -160,6 +236,10 @@
 }
 
 .identityName {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
   color: var(--text-primary);
   font-weight: 850;
 }
@@ -191,14 +271,42 @@
   font-weight: 850;
 }
 
+.statusBadgeActive {
+  border-color: color-mix(in srgb, #16a34a 38%, var(--border-color));
+  background: color-mix(in srgb, #16a34a 10%, var(--bg-primary));
+  color: #15803d;
+}
+
+.statusBadgeMuted {
+  border-color: color-mix(in srgb, #64748b 32%, var(--border-color));
+  background: color-mix(in srgb, #64748b 9%, var(--bg-primary));
+  color: var(--text-secondary);
+}
+
+.scoreBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 58px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--primary-color) 26%, var(--border-color));
+  background: color-mix(in srgb, var(--primary-color) 8%, var(--bg-primary));
+  color: color-mix(in srgb, var(--text-primary) 82%, var(--primary-color));
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+}
+
 .scoreControl {
   display: inline-flex;
   gap: 6px;
   align-items: center;
+  white-space: nowrap;
 }
 
 .scoreInput {
   width: 76px;
+  flex: 0 0 76px;
   height: 30px;
   border: 1px solid var(--border-color);
   border-radius: 8px;
