@@ -443,7 +443,6 @@ describe('UsagePage tab labels', () => {
       'translated:usage_stats.tab_analysis',
       'translated:usage_stats.tab_events',
       'translated:usage_stats.tab_credentials',
-      'translated:usage_stats.tab_codex_pool',
       'translated:usage_stats.tab_settings',
     ]);
   });

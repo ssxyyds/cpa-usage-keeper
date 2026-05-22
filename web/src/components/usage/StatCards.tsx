@@ -1,4 +1,4 @@
-import { useMemo, type CSSProperties, type ReactNode } from 'react';
+import { Fragment, useMemo, type CSSProperties, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Line } from 'react-chartjs-2';
 import {
@@ -33,6 +33,7 @@ interface StatCardData {
 export interface StatCardsProps {
   usage: UsageOverviewPayload | null;
   loading: boolean;
+  afterPrimary?: ReactNode;
   sparklines: {
     requests: SparklineBundle | null;
     tokens: SparklineBundle | null;
@@ -76,7 +77,7 @@ export function buildStatCardMetrics({ usage }: { usage: UsageOverviewPayload | 
   };
 }
 
-export function StatCards({ usage, loading, sparklines }: StatCardsProps) {
+export function StatCards({ usage, loading, afterPrimary, sparklines }: StatCardsProps) {
   const { t } = useTranslation();
   const usageSnapshot = usage?.usage ?? null;
   const { tokenBreakdown, rateStats, totalCost, costAvailable } = useMemo(
@@ -189,37 +190,39 @@ export function StatCards({ usage, loading, sparklines }: StatCardsProps) {
   return (
     <div className={styles.statsGrid}>
       {statsCards.map((card) => (
-        <div
-          key={card.key}
-          className={styles.statCard}
-          style={
-            {
-              '--accent': card.accent,
-              '--accent-soft': card.accentSoft,
-              '--accent-border': card.accentBorder,
-            } as CSSProperties
-          }
-        >
-          <div className={styles.statCardHeader}>
-            <div className={styles.statLabelGroup}>
-              <span className={styles.statLabel}>{card.label}</span>
+        <Fragment key={card.key}>
+          <div
+            className={styles.statCard}
+            style={
+              {
+                '--accent': card.accent,
+                '--accent-soft': card.accentSoft,
+                '--accent-border': card.accentBorder,
+              } as CSSProperties
+            }
+          >
+            <div className={styles.statCardHeader}>
+              <div className={styles.statLabelGroup}>
+                <span className={styles.statLabel}>{card.label}</span>
+              </div>
+              <span className={styles.statIconBadge}>{card.icon}</span>
             </div>
-            <span className={styles.statIconBadge}>{card.icon}</span>
+            <div className={styles.statValue}>{card.value}</div>
+            {card.meta && <div className={styles.statMetaRow}>{card.meta}</div>}
+            <div className={styles.statTrend}>
+              {card.trend ? (
+                <Line
+                  className={styles.sparkline}
+                  data={card.trend.data}
+                  options={sparklineOptions}
+                />
+              ) : (
+                <div className={styles.statTrendPlaceholder}></div>
+              )}
+            </div>
           </div>
-          <div className={styles.statValue}>{card.value}</div>
-          {card.meta && <div className={styles.statMetaRow}>{card.meta}</div>}
-          <div className={styles.statTrend}>
-            {card.trend ? (
-              <Line
-                className={styles.sparkline}
-                data={card.trend.data}
-                options={sparklineOptions}
-              />
-            ) : (
-              <div className={styles.statTrendPlaceholder}></div>
-            )}
-          </div>
-        </div>
+          {card.key === 'tokens' && afterPrimary ? <div className={styles.statInsertedRow}>{afterPrimary}</div> : null}
+        </Fragment>
       ))}
     </div>
   );

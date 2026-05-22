@@ -4,6 +4,7 @@ import {
   CREDENTIALS_PAGE_SIZE,
   buildAiProviderCredentialRows,
   buildAuthFileCredentialRows,
+  filterAuthFileCredentialIdentities,
   sortAuthFileCredentialRows,
   paginateCredentials,
   selectQuotaEligibleAuthIndexes,
@@ -20,6 +21,7 @@ function identity(overrides: Partial<UsageIdentity>): UsageIdentity {
     type: overrides.type ?? 'claude',
     provider: overrides.provider ?? 'claude',
     plan_type: overrides.plan_type,
+    note: overrides.note,
     total_requests: overrides.total_requests ?? 0,
     success_count: overrides.success_count ?? 0,
     failure_count: overrides.failure_count ?? 0,
@@ -167,6 +169,18 @@ describe('credentialViewModels', () => {
     expect(rows[0].extraQuota.map((quota) => quota.label)).toEqual(['Code Assist Credit'])
   })
 
+  it('filters auth file credentials by account identity display name and plan fields', () => {
+    const identities = [
+      identity({ identity: 'alpha@example.com', displayName: 'Alpha Team', plan_type: 'team' }),
+      identity({ identity: 'beta@example.com', displayName: 'Beta Free', plan_type: 'free' }),
+      identity({ identity: 'codex-idx-3', displayName: 'Gamma', note: 'production lane' }),
+    ]
+
+    expect(filterAuthFileCredentialIdentities(identities, 'alpha').map((item) => item.identity)).toEqual(['alpha@example.com'])
+    expect(filterAuthFileCredentialIdentities(identities, 'TEAM').map((item) => item.identity)).toEqual(['alpha@example.com'])
+    expect(filterAuthFileCredentialIdentities(identities, 'prod').map((item) => item.identity)).toEqual(['codex-idx-3'])
+  })
+
   it('adds Codex score data to matching auth file rows', () => {
     const rows = buildAuthFileCredentialRows([
       identity({ identity: 'codex-auth', provider: 'codex', type: 'codex' }),
@@ -195,6 +209,76 @@ describe('credentialViewModels', () => {
 
     expect(sortAuthFileCredentialRows(rows, 'codex_score_asc').map((row) => row.identity.identity)).toEqual(['low', 'high', 'unknown'])
     expect(sortAuthFileCredentialRows(rows, 'codex_score_desc').map((row) => row.identity.identity)).toEqual(['high', 'low', 'unknown'])
+  })
+
+  it('pins current Codex accounts before score order', () => {
+    const rows = buildAuthFileCredentialRows([
+      identity({ identity: 'low-current', displayName: 'Low Current' }),
+      identity({ identity: 'high', displayName: 'High' }),
+      identity({ identity: 'middle', displayName: 'Middle' }),
+    ], new Map(), new Map(), new Map([
+      ['low-current', { score: 1, manualAdjustment: 0, current: true }],
+      ['high', { score: 20, manualAdjustment: 0 }],
+      ['middle', { score: 10, manualAdjustment: 0 }],
+    ]))
+
+    expect(sortAuthFileCredentialRows(rows, 'codex_score_desc').map((row) => row.identity.identity)).toEqual(['low-current', 'high', 'middle'])
+    expect(rows[0].isCodexCurrent).toBe(true)
+  })
+
+  it('uses CPA Codex state quota when local quota cache has not been manually refreshed', () => {
+    const rows = buildAuthFileCredentialRows([
+      identity({ identity: 'codex-auth', provider: 'codex', type: 'codex' }),
+    ], new Map(), new Map(), new Map([
+      ['codex-auth', {
+        score: 12,
+        quota: [
+          {
+            key: 'codex_quota.five_hour',
+            label: '5h',
+            remaining: 80,
+            limit: 100,
+            remainingFraction: 0.8,
+            resetAt: '2026-05-09T12:00:00Z',
+            window: { seconds: 18000 },
+          },
+          {
+            key: 'codex_quota.weekly',
+            label: 'Weekly',
+            remaining: 180,
+            limit: 300,
+            remainingFraction: 0.6,
+            resetAt: '2026-05-14T12:00:00Z',
+            window: { seconds: 604800 },
+          },
+        ],
+      }],
+    ]))
+
+    expect(rows[0].primaryQuota?.label).toBe('5h')
+    expect(rows[0].primaryQuota?.barPercent).toBe(80)
+    expect(rows[0].secondaryQuota?.label).toBe('Weekly')
+    expect(rows[0].secondaryQuota?.barPercent).toBe(60)
+  })
+
+  it('prefers fresh CPA Codex state quota over stale local quota cache for Codex rows', () => {
+    const localQuotas = new Map<string, UsageQuotaRow[]>([
+      ['codex-auth', [
+        { key: 'rate_limit.primary_window', label: '5h', remainingFraction: 0.1, remaining: 10, limit: 100, window: { seconds: 18000 } },
+      ]],
+    ])
+    const rows = buildAuthFileCredentialRows([
+      identity({ identity: 'codex-auth', provider: 'codex', type: 'codex' }),
+    ], localQuotas, new Map(), new Map([
+      ['codex-auth', {
+        score: 12,
+        quota: [
+          { key: 'codex_quota.five_hour', label: '5h', remaining: 80, limit: 100, remainingFraction: 0.8, window: { seconds: 18000 } },
+        ],
+      }],
+    ]))
+
+    expect(rows[0].primaryQuota?.barPercent).toBe(80)
   })
 
   it('uses Claude token semantics for auth file cache rate', () => {

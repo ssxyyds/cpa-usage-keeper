@@ -6,7 +6,9 @@ This branch keeps the stats project fork-friendly while integrating the Codex-sp
 
 - Stats project branch: `codex-enhancement`
 - CPA backend dependency: `CLIProxyAPI` branch `codex-enhancement`
-- Main local dashboard entry: Usage page tab `Codex Pool`
+- Main local dashboard entry: `Usage -> Credentials -> Auth Files`
+- Pool-level Codex summary entry: `Usage -> Overview`
+- `Codex Pool` is hidden from the main navigation and kept only as a diagnostic/deprecated component while the branch settles.
 
 ## CPA API Dependency
 
@@ -49,9 +51,34 @@ Expected state payload:
     "five_hour": { "known": 88, "limit": 3520, "remaining": 870, "remaining_ratio": 0.2471 },
     "last_refresh_at": "2026-05-21T06:30:00Z"
   },
+  "current_selections": [
+    {
+      "model": "gpt-5.4",
+      "id": "auth-id",
+      "auth_index": "codex-auth-1",
+      "name": "Codex Primary",
+      "email": "user@example.com",
+      "account": "user@example.com"
+    }
+  ],
   "routing_strategy": "codex-quota-score"
 }
 ```
+
+CPA is the source of truth for Codex quota refresh/probe, score calculation, current model-account selection, plan type hints, reset times, and routing strategy. The stats project should consume CPA state and avoid duplicating Codex refresh logic in the browser.
+
+## Codex Quota Sync Flow
+
+Codex quota data in the Credentials page is intentionally driven by CPA state, not by an independent browser-side Codex quota implementation.
+
+There are two refresh paths:
+
+- **CPA background inspection path:** CPA periodically inspects Codex accounts and writes the resulting `five_hour` and `weekly` buckets into each account's `codex_quota`. The dashboard polls `GET /api/v1/codex-state` while the Credentials tab is active, merges `codex_quota` into matching Auth File rows, and refreshes the displayed 5h/Weekly bars, computed score, and current-account highlight automatically. No user action is required after CPA inspection finishes.
+- **Manual dashboard refresh path:** Clicking `Update Quotas` or a row refresh button still starts the usage-keeper quota refresh task through `/api/v1/quota/refresh` for the selected Auth Files. For Codex accounts, the dashboard also calls `POST /api/v1/codex-state/refresh` for the same auth indexes and then reloads `GET /api/v1/codex-state`.
+
+For Codex Auth File rows, `codex_quota` from CPA state has display priority over usage-keeper's local quota cache. This prevents stale local quota cache data from hiding fresher CPA inspection results. The local quota cache remains useful for non-Codex providers and as a manual-refresh task result, but Codex scheduling-relevant quota should be read from CPA state.
+
+The frontend currently polls Codex state every 15 seconds while the Credentials tab data hook is enabled. This keeps the page aligned with CPA account switching, including automatic changes to `current_selections` and `on_device`.
 
 ## Local Stats API
 
@@ -73,17 +100,34 @@ Manual score request:
 
 The intended adjustment range is `-100` to `100`; CPA remains the authority that validates and stores the value.
 
+After a successful manual score save, CPA recalculates the current sticky selection immediately. The dashboard refreshes Codex state after saving so a deliberately boosted account can become visible without waiting for the next 15 minute巡检.
+
+## Overview Integration
+
+`Usage -> Overview` shows pool-level Codex state:
+
+- Current CPA Codex routing strategy, localized for operators.
+- Weekly remaining quota total from `summary.weekly.remaining`.
+- Five-hour remaining quota total from `summary.five_hour.remaining`.
+
+The CPA巡检更新时间 is intentionally not shown in account rows because it is pool-level operational state and usually changes in batches.
+
 ## Credentials Integration
 
-`Usage -> Credentials -> Auth Files` also consumes Codex state:
+`Usage -> Credentials -> Auth Files` is the primary Codex operator list:
 
-- Quota bars still use the existing quota cache/refresh task flow.
+- Codex quota bars prefer CPA `codex_quota` from `GET /api/v1/codex-state`; the local quota cache is only a fallback for Codex and remains the normal path for other providers.
+- CPA background inspection updates are picked up automatically by the frontend Codex state poller, so operators do not need to click `Update Quotas` after CPA finishes巡检.
 - Refreshing the current page or a single row updates the local quota cache and also asks CPA to refresh Codex state for those auth indexes.
-- Codex score editing is intentionally not shown in Credentials rows. Operators should use `Usage -> Codex Pool` for Codex routing score and manual adjustment changes.
+- Codex-specific row additions are intentionally compact: final score, manual adjustment input, and save action.
+- Auth Files default to Codex score descending. If CPA marks an account through `on_device` or `current_selections`, that current account is pinned and highlighted above score order.
+- Rows do not show pool totals, current strategy, or CPA巡检更新时间.
 
 ## Codex Pool Integration
 
-`Usage -> Codex Pool` is the Codex-specific operator view:
+`Codex Pool` is no longer the main operator view. Keep the component code available for diagnostics while the project transitions, but do not export it as a main Usage tab.
+
+Historical behavior in this component:
 
 - The account table is sorted by computed score descending by default, with unknown scores last.
 - If CPA marks an account as `on_device`, the table pins and highlights that current account above the score order.
@@ -98,6 +142,23 @@ The intended adjustment range is `-100` to `100`; CPA remains the authority that
 - Summary cards show active/total accounts, weekly quota, five-hour quota, disabled/cooldown counts, and the latest summary refresh time.
 - Manual score edits use `PATCH /api/v1/codex-state/manual-score`.
 - UI labels are localized through `usage_stats.codex_pool_*` keys.
+
+New development should prefer `Overview` for pool-level information and `Credentials/Auth Files` for per-account actions.
+
+## Local Docker Verification
+
+Use Docker to verify page changes against the complete usage-keeper service instead of running a separate Vite-only frontend.
+
+Recommended local shape:
+
+- CPA tunnel on the host: `http://127.0.0.1:8318`
+- usage-keeper container: `http://127.0.0.1:18082`
+- Container CPA base URL: `http://host.docker.internal:8318`
+- Auth disabled for local verification: `AUTH_ENABLED=false`
+
+When using a host HTTP proxy for Docker image pulls, do not proxy traffic from the container back to the host CPA tunnel. Set both `NO_PROXY` and `no_proxy` to include `host.docker.internal,127.0.0.1,localhost`; otherwise Codex state calls can be routed through the proxy and return `502`.
+
+Open `http://127.0.0.1:18082` to test the full page and API together. Rebuild the image after frontend changes because the Dockerfile embeds `web/dist` into the server image.
 
 ## Model Pricing Defaults
 
@@ -125,13 +186,15 @@ Backend:
 
 Frontend:
 
-- `web/src/components/usage/codex/*`
+- `web/src/components/usage/CodexOverviewCard.tsx`
+- `web/src/components/usage/CodexOverviewCard.test.tsx`
+- `web/src/components/usage/codex/*` for diagnostic/deprecated Codex Pool code
 - Codex state merge in `web/src/components/usage/credentials/*`
 - Codex state types in `web/src/lib/types.ts`
 - Codex state API functions in `web/src/lib/api.ts`
 - API test coverage in `web/src/lib/api.test.ts`
 - Usage tab wiring in `web/src/pages/UsagePage.tsx`
-- `usage_stats.tab_codex_pool` translations in `web/src/i18n/index.ts`
+- Overview/Credentials Codex translations in `web/src/i18n/index.ts`
 
 ## Verification
 

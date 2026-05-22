@@ -14,8 +14,8 @@ import {
   Legend,
   Filler
 } from 'chart.js';
-import { ApiError, fetchAnalysis, fetchCpaApiKeyOptions, fetchCpaApiKeys, fetchStatus, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventSourceFilterOptions, fetchUsageEvents, logout, updateCpaApiKeyAlias } from '@/lib/api';
-import type { AnalysisResponse, CpaApiKeyOption, CpaApiKeySettingsItem, StatusResponse, UsageEvent, UsageSourceFilterOption } from '@/lib/types';
+import { ApiError, fetchAnalysis, fetchCodexState, fetchCpaApiKeyOptions, fetchCpaApiKeys, fetchStatus, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventSourceFilterOptions, fetchUsageEvents, logout, updateCpaApiKeyAlias } from '@/lib/api';
+import type { AnalysisResponse, CodexStateResponse, CpaApiKeyOption, CpaApiKeySettingsItem, StatusResponse, UsageEvent, UsageSourceFilterOption } from '@/lib/types';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { LanguageSwitcher } from '@/components/ui/LanguageSwitcher';
 import { Select } from '@/components/ui/Select';
@@ -32,7 +32,7 @@ import {
   PriceSettingsCard,
   AuthFileCredentialsSection,
   AiProviderCredentialsSection,
-  CodexPoolPanel,
+  CodexOverviewCard,
   RequestEventsDetailsCard,
   TokenBreakdownChart,
   CostTrendChart,
@@ -100,7 +100,7 @@ const THEME_OPTIONS: ReadonlyArray<{ value: Theme; labelKey: string }> = [
   { value: 'dark', labelKey: 'usage_stats.theme_dark' },
   { value: 'auto', labelKey: 'usage_stats.theme_auto' }
 ];
-const USAGE_TAB_OPTIONS = ['overview', 'analysis', 'events', 'credentials', 'codex', 'settings'] as const;
+const USAGE_TAB_OPTIONS = ['overview', 'analysis', 'events', 'credentials', 'settings'] as const;
 type UsageTab = (typeof USAGE_TAB_OPTIONS)[number];
 type Translate = (key: string) => string;
 const USAGE_TAB_LABEL_KEYS: Record<UsageTab, string> = {
@@ -108,7 +108,6 @@ const USAGE_TAB_LABEL_KEYS: Record<UsageTab, string> = {
   analysis: 'usage_stats.tab_analysis',
   events: 'usage_stats.tab_events',
   credentials: 'usage_stats.tab_credentials',
-  codex: 'usage_stats.tab_codex_pool',
   settings: 'usage_stats.tab_settings',
 };
 const DEFAULT_USAGE_TAB: UsageTab = 'overview';
@@ -118,7 +117,7 @@ const REQUEST_EVENTS_DEFAULT_PAGE_SIZE = 100;
 const ALL_REQUEST_EVENTS_FILTER = '__all__';
 const OVERVIEW_AUTO_REFRESH_INTERVAL_MS = 10_000;
 
-export const shouldShowRangeControls = (tab: UsageTab) => tab !== 'settings' && tab !== 'credentials' && tab !== 'codex';
+export const shouldShowRangeControls = (tab: UsageTab) => tab !== 'settings' && tab !== 'credentials';
 
 export const shouldShowApiKeyFilter = (tab: UsageTab) => shouldShowRangeControls(tab);
 
@@ -528,6 +527,9 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const [eventsResultFilter, setEventsResultFilter] = useState(ALL_REQUEST_EVENTS_FILTER);
   const eventsRequestControllerRef = useRef<AbortController | null>(null);
   const eventsFilterOptionsRequestControllerRef = useRef<AbortController | null>(null);
+  const [codexOverviewState, setCodexOverviewState] = useState<CodexStateResponse | null>(null);
+  const [codexOverviewLoading, setCodexOverviewLoading] = useState(false);
+  const codexOverviewRequestControllerRef = useRef<AbortController | null>(null);
   const [manualRefreshLoading, setManualRefreshLoading] = useState(false);
   const credentialsData = useCredentialsTabData({
     enabled: activeTab === 'credentials',
@@ -959,6 +961,32 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     }
   }, [eventsModelFilter, eventsPage, eventsPageSize, eventsResultFilter, eventsSourceFilter, getEventQueryWindow, onAuthRequired, selectedApiKeyId, timeRange]);
 
+  const loadCodexOverview = useCallback(async () => {
+    codexOverviewRequestControllerRef.current?.abort();
+    const controller = new AbortController();
+    codexOverviewRequestControllerRef.current = controller;
+    setCodexOverviewLoading(true);
+    try {
+      const response = await fetchCodexState(controller.signal);
+      if (codexOverviewRequestControllerRef.current !== controller) {
+        return;
+      }
+      setCodexOverviewState(response);
+    } catch (error) {
+      if (controller.signal.aborted) {
+        return;
+      }
+      if (error instanceof ApiError && error.status === 401) {
+        onAuthRequired?.();
+      }
+    } finally {
+      if (codexOverviewRequestControllerRef.current === controller) {
+        setCodexOverviewLoading(false);
+        codexOverviewRequestControllerRef.current = null;
+      }
+    }
+  }, [onAuthRequired]);
+
   const resetEventsPage = useCallback(() => {
     setEventsPage(1);
   }, []);
@@ -992,9 +1020,6 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       await refreshCredentials();
       return;
     }
-    if (activeTab === 'codex') {
-      return;
-    }
     if (activeTab === 'analysis') {
       await loadAnalysis();
       return;
@@ -1003,8 +1028,8 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       await Promise.all([loadApiKeySettings(), loadPricing()]);
       return;
     }
-    await loadUsage();
-  }, [activeTab, loadAnalysis, loadApiKeySettings, loadEventFilterOptions, loadEvents, loadPricing, loadUsage, refreshCredentials]);
+    await Promise.all([loadUsage(), loadCodexOverview()]);
+  }, [activeTab, loadAnalysis, loadApiKeySettings, loadCodexOverview, loadEventFilterOptions, loadEvents, loadPricing, loadUsage, refreshCredentials]);
 
   const refreshAutoRefreshTab = useCallback(async () => {
     if (activeTab === 'events') {
@@ -1015,8 +1040,8 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       await refreshCredentials();
       return;
     }
-    await loadUsage();
-  }, [activeTab, loadEvents, loadUsage, refreshCredentials]);
+    await Promise.all([loadUsage(), loadCodexOverview()]);
+  }, [activeTab, loadCodexOverview, loadEvents, loadUsage, refreshCredentials]);
 
   const autoRefreshEnabled = shouldAutoRefreshUsageTab({
     activeTab,
@@ -1126,6 +1151,20 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       analysisRequestControllerRef.current = null;
     };
   }, [activeTab, loadAnalysis]);
+
+  useEffect(() => {
+    if (activeTab !== 'overview') {
+      codexOverviewRequestControllerRef.current?.abort();
+      codexOverviewRequestControllerRef.current = null;
+      setCodexOverviewLoading(false);
+      return;
+    }
+    void loadCodexOverview();
+    return () => {
+      codexOverviewRequestControllerRef.current?.abort();
+      codexOverviewRequestControllerRef.current = null;
+    };
+  }, [activeTab, loadCodexOverview]);
 
   useEffect(() => {
     if (activeTab !== 'settings') {
@@ -1491,6 +1530,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                 <StatCards
                   usage={usage}
                   loading={overviewDisplayLoading}
+                  afterPrimary={<CodexOverviewCard state={codexOverviewState} loading={codexOverviewLoading && !codexOverviewState} />}
                   sparklines={{
                     requests: requestsSparkline,
                     tokens: tokensSparkline,
@@ -1598,6 +1638,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                     totalPages={credentialsData.authFileTotalPages}
                     pageSize={credentialsData.authFilePageSize}
                     activeOnly={credentialsData.authFileActiveOnly}
+                    search={credentialsData.authFileSearch}
                     sort={credentialsData.authFileSort}
                     loading={credentialsData.loading}
                     quotaRefreshing={credentialsData.quotaRefreshing}
@@ -1605,9 +1646,11 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                     onPageChange={credentialsData.setAuthFilePage}
                     onPageSizeChange={credentialsData.setAuthFilePageSize}
                     onActiveOnlyChange={credentialsData.setAuthFileActiveOnly}
+                    onSearchChange={credentialsData.setAuthFileSearch}
                     onSortChange={credentialsData.setAuthFileSort}
                     onRefreshQuota={credentialsData.refreshQuotaForCurrentAuthFilePage}
                     onRefreshQuotaForAuthIndex={credentialsData.refreshQuotaForAuthIndex}
+                    onUpdateCodexManualScore={credentialsData.updateCodexManualScoreForAuthIndex}
                   />
                   <AiProviderCredentialsSection
                     rows={credentialsData.aiProviderRows}
@@ -1623,10 +1666,6 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   />
                 </div>
               </>
-            )}
-
-            {activeTab === 'codex' && (
-              <CodexPoolPanel onAuthRequired={onAuthRequired} />
             )}
 
             {activeTab === 'settings' && (

@@ -345,6 +345,15 @@ export interface CodexStateAccount {
   codex_last_selection_reason?: string
 }
 
+export interface CodexCurrentSelection {
+  model?: string
+  id?: string
+  auth_index?: string
+  name?: string
+  email?: string
+  account?: string
+}
+
 export interface CodexPoolSummaryBucket {
   known?: number
   limit?: number
@@ -369,6 +378,7 @@ export interface CodexStateResponse {
   'codex-state': CodexStateAccount[]
   summary: CodexPoolSummary
   routing_strategy?: string
+  current_selections?: CodexCurrentSelection[]
 }
 
 export interface AnalysisTokenUsageBucket {

@@ -24,6 +24,8 @@ export interface CodexCredentialState {
   score?: number
   manualAdjustment?: number
   scoreReason?: string
+  current?: boolean
+  quota?: UsageQuotaRow[]
 }
 
 export interface AuthFileCredentialRow {
@@ -50,6 +52,7 @@ export interface AuthFileCredentialRow {
   codexScore?: number
   codexManualScoreAdjustment?: number
   codexScoreReason?: string
+  isCodexCurrent?: boolean
   primaryQuota?: DisplayQuota
   secondaryQuota?: DisplayQuota
   extraQuota: DisplayQuota[]
@@ -125,9 +128,9 @@ export function buildAuthFileCredentialRows(
   codexStates: Map<string, CodexCredentialState> = new Map(),
 ): AuthFileCredentialRow[] {
   return identities.map((identity) => {
-    const quota = quotas.get(identity.identity) ?? []
     const state = quotaStates.get(identity.identity)
     const codexState = codexStates.get(identity.identity)
+    const quota = codexState?.quota ?? quotas.get(identity.identity) ?? []
     const displayQuotas = quota.map(toDisplayQuota)
     const planType = firstNonEmpty(...quota.map((row) => row.planType), identity.plan_type)
     // 先挑 5h 主窗口，再挑 Weekly 次窗口，其余限额保留到 chips 中展示。
@@ -159,6 +162,7 @@ export function buildAuthFileCredentialRows(
       codexScore: codexState?.score,
       codexManualScoreAdjustment: codexState?.manualAdjustment,
       codexScoreReason: codexState?.scoreReason,
+      isCodexCurrent: codexState?.current === true,
       primaryQuota,
       secondaryQuota,
       extraQuota,
@@ -172,6 +176,9 @@ export function sortAuthFileCredentialRows(rows: AuthFileCredentialRow[], sort: 
   }
   const direction = sort === 'codex_score_asc' ? 1 : -1
   return [...rows].sort((left, right) => {
+    if (left.isCodexCurrent !== right.isCodexCurrent) {
+      return left.isCodexCurrent ? -1 : 1
+    }
     const leftScore = finiteNumber(left.codexScore)
     const rightScore = finiteNumber(right.codexScore)
     if (leftScore === undefined && rightScore === undefined) {
@@ -188,6 +195,23 @@ export function sortAuthFileCredentialRows(rows: AuthFileCredentialRow[], sort: 
     }
     return (leftScore - rightScore) * direction
   })
+}
+
+export function filterAuthFileCredentialIdentities(identities: UsageIdentity[], searchTerm: string): UsageIdentity[] {
+  const normalized = searchTerm.trim().toLowerCase()
+  if (!normalized) {
+    return identities
+  }
+  return identities.filter((identity) => [
+    identity.displayName,
+    identity.name,
+    identity.identity,
+    identity.provider,
+    identity.type,
+    identity.prefix,
+    identity.note,
+    identity.plan_type,
+  ].some((value) => value?.toLowerCase().includes(normalized)))
 }
 
 export function buildAiProviderCredentialRows(identities: UsageIdentity[]): AiProviderCredentialRow[] {

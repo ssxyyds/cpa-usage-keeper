@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { CodexStateAccount } from '@/lib/types'
 import {
+  currentCodexPoolSelections,
   currentCodexPoolAccount,
   accountTypeLabel,
   filterCodexPoolAccounts,
@@ -38,6 +39,35 @@ describe('CodexPoolPanel view helpers', () => {
 
     expect(sortCodexPoolAccounts(rows).map((row) => row.auth_index)).toEqual(['current', 'high', 'low'])
     expect(currentCodexPoolAccount(rows)?.auth_index).toBe('current')
+  })
+
+  it('uses model-level current selections when the CPA API provides them', () => {
+    const state = {
+      'codex-state': [
+        { id: 'auth-1', auth_index: 'codex-1', on_device: true },
+      ],
+      summary: {},
+      current_selections: [
+        { model: 'gpt-5.4', id: 'auth-1', auth_index: 'codex-1' },
+        { model: 'gpt-5.4-mini', id: 'auth-2', auth_index: 'codex-2' },
+      ],
+    }
+
+    expect(currentCodexPoolSelections(state).map((selection) => selection.model)).toEqual(['gpt-5.4', 'gpt-5.4-mini'])
+  })
+
+  it('falls back to the legacy on-device account for older CPA APIs', () => {
+    const state = {
+      'codex-state': [
+        { id: 'auth-1', auth_index: 'codex-1' },
+        { id: 'auth-2', auth_index: 'codex-2', on_device: true },
+      ],
+      summary: {},
+    }
+
+    expect(currentCodexPoolSelections(state)).toEqual([
+      { model: '', id: 'auth-2', auth_index: 'codex-2', name: undefined, email: undefined, account: undefined },
+    ])
   })
 
   it('uses the last refresh timestamp instead of status text for refresh cells', () => {

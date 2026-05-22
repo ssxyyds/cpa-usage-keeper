@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ApiError, fetchCodexState, recalculateCodexState, refreshCodexState, updateCodexManualScore } from '@/lib/api';
-import type { CodexPoolSummaryBucket, CodexStateAccount, CodexStateResponse } from '@/lib/types';
+import type { CodexCurrentSelection, CodexPoolSummaryBucket, CodexStateAccount, CodexStateResponse } from '@/lib/types';
 import { IconRefreshCw } from '@/components/ui/icons';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import styles from './CodexPoolPanel.module.scss';
@@ -62,6 +62,32 @@ export function sortCodexPoolAccounts(accounts: CodexStateAccount[]): CodexState
 
 export function currentCodexPoolAccount(accounts: CodexStateAccount[]): CodexStateAccount | undefined {
   return accounts.find((account) => account.on_device);
+}
+
+export function currentCodexPoolSelections(state: CodexStateResponse | null): CodexCurrentSelection[] {
+  const selections = state?.current_selections?.filter((selection) => selection.id || selection.auth_index || selection.name || selection.email) ?? [];
+  if (selections.length > 0) return selections;
+  const currentAccount = currentCodexPoolAccount(state?.['codex-state'] ?? []);
+  if (!currentAccount) return [];
+  return [{
+    model: '',
+    id: currentAccount.id,
+    auth_index: currentAccount.auth_index,
+    name: currentAccount.name,
+    email: currentAccount.email,
+    account: currentAccount.account,
+  }];
+}
+
+function currentSelectionLabel(selection: CodexCurrentSelection): string {
+  return selection.name || selection.email || selection.auth_index || selection.id || '-';
+}
+
+function selectionMatchesAccount(selection: CodexCurrentSelection, account: CodexStateAccount): boolean {
+  return Boolean(
+    (selection.id && account.id && selection.id === account.id)
+    || (selection.auth_index && account.auth_index && selection.auth_index === account.auth_index),
+  );
 }
 
 export function formatCodexRefreshTime(account: CodexStateAccount): string {
@@ -146,7 +172,8 @@ export function CodexPoolPanel({ onAuthRequired }: { onAuthRequired?: () => void
 
   const sortedAccounts = useMemo(() => sortCodexPoolAccounts(state?.['codex-state'] ?? []), [state]);
   const accounts = useMemo(() => filterCodexPoolAccounts(sortedAccounts, search), [search, sortedAccounts]);
-  const currentAccount = useMemo(() => currentCodexPoolAccount(sortedAccounts), [sortedAccounts]);
+  const currentSelections = useMemo(() => currentCodexPoolSelections(state), [state]);
+  const currentAuthIDs = useMemo(() => new Set(currentSelections.flatMap((selection) => [selection.id, selection.auth_index].filter(Boolean) as string[])), [currentSelections]);
   const summary = state?.summary;
 
   const loadState = useCallback(async () => {
@@ -242,11 +269,18 @@ export function CodexPoolPanel({ onAuthRequired }: { onAuthRequired?: () => void
         <span>{t('usage_stats.codex_pool_manual_tip')}</span>
       </div>
 
-      {currentAccount && (
+      {currentSelections.length > 0 && (
         <div className={styles.currentAccountBanner}>
-          <span className={styles.currentAccountLabel}>{t('usage_stats.codex_pool_current_account')}</span>
-          <strong>{currentAccount.name || currentAccount.email || currentAccount.auth_index || currentAccount.id || '-'}</strong>
-          <span>{currentAccount.auth_index || currentAccount.id || '-'}</span>
+          <span className={styles.currentAccountLabel}>{t('usage_stats.codex_pool_current_account_by_model')}</span>
+          <div className={styles.currentSelectionList}>
+            {currentSelections.map((selection) => (
+              <span key={`${selection.model || 'default'}:${selection.id || selection.auth_index || currentSelectionLabel(selection)}`} className={styles.currentSelectionItem}>
+                <span className={styles.currentSelectionModel}>{selection.model || t('usage_stats.codex_pool_default_model')}</span>
+                <strong>{currentSelectionLabel(selection)}</strong>
+                <span>{selection.auth_index || selection.id || '-'}</span>
+              </span>
+            ))}
+          </div>
         </div>
       )}
 
@@ -308,8 +342,9 @@ export function CodexPoolPanel({ onAuthRequired }: { onAuthRequired?: () => void
               const score = finiteScore(account);
               const typeLabel = accountTypeLabel(account);
               const resetTime = nextQuotaResetTime(account);
+              const isCurrent = account.on_device || currentAuthIDs.has(account.id ?? '') || currentAuthIDs.has(account.auth_index ?? '') || currentSelections.some((selection) => selectionMatchesAccount(selection, account));
               return (
-                <tr key={key} className={account.on_device ? styles.currentRow : undefined}>
+                <tr key={key} className={isCurrent ? styles.currentRow : undefined}>
                   <td>
                     <div className={styles.identity}>
                       <div className={styles.identityName}>
@@ -318,7 +353,7 @@ export function CodexPoolPanel({ onAuthRequired }: { onAuthRequired?: () => void
                       <div className={styles.identityBadges}>
                         <span className={`${styles.statusBadge} ${account.disabled || account.unavailable ? styles.statusBadgeMuted : styles.statusBadgeActive}`.trim()}>{account.disabled ? t('usage_stats.codex_pool_status_disabled') : account.unavailable ? t('usage_stats.codex_pool_status_unavailable') : account.status || t('usage_stats.codex_pool_status_active')}</span>
                         {typeLabel && <span className={styles.typeBadge}>{typeLabel}</span>}
-                        {account.on_device && <span className={styles.currentBadge}>{t('usage_stats.codex_pool_current_badge')}</span>}
+                        {isCurrent && <span className={styles.currentBadge}>{t('usage_stats.codex_pool_current_badge')}</span>}
                       </div>
                     </div>
                   </td>

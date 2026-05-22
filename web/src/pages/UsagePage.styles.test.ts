@@ -31,6 +31,15 @@ describe('UsagePage toolbar styles', () => {
     expect(usagePageStyles).toMatch(/\.usageRefreshSlot\s*\{[\s\S]*?flex:\s*0 0 auto;/)
   })
 
+  it('places Codex overview inside the top metrics grid after the primary cards', () => {
+    expect(usagePageSource).toContain('afterPrimary={<CodexOverviewCard')
+    expect(usagePageSource.indexOf('afterPrimary={<CodexOverviewCard')).toBeLessThan(usagePageSource.indexOf('<ServiceHealthCard'))
+    expect(usagePageStyles).toMatch(/\.statInsertedRow\s*\{[\s\S]*?grid-column:\s*1 \/ -1;/)
+    expect(usagePageStyles).toMatch(/\.codexOverviewGrid\s*\{[\s\S]*?grid-template-columns:\s*repeat\(12, minmax\(0, 1fr\)\);/)
+    expect(usagePageStyles).toMatch(/\.codexOverviewItem\s*\{[\s\S]*?grid-column:\s*span 4;/)
+    expect(usagePageStyles).toMatch(/\.codexOverviewItem:nth-child\(-n \+ 2\)\s*\{[\s\S]*?grid-column:\s*span 4;/)
+  })
+
   it('keeps the API Key filter visible on the Analysis page so Analysis requests can be filtered', () => {
     expect(usagePageSource).not.toContain('shouldShowApiKeyFilter(activeTab)')
     expect(usagePageSource).not.toContain('styles.apiKeyFilterGroupHidden')
@@ -54,11 +63,11 @@ describe('UsagePage toolbar styles', () => {
     expect(i18nSource).not.toContain("tab_analysis: 'API & Models'")
     expect(i18nSource).not.toContain("tab_analysis: 'API 与模型'")
     expect(i18nSource).not.toContain("tab_analysis: 'API 與模型'")
-    expect(usagePageSource).toContain("const USAGE_TAB_OPTIONS = ['overview', 'analysis', 'events', 'credentials', 'codex', 'settings'] as const")
+    expect(usagePageSource).toContain("const USAGE_TAB_OPTIONS = ['overview', 'analysis', 'events', 'credentials', 'settings'] as const")
   })
 
   it('keeps Sign out as the rightmost header action after Check Updates', () => {
-    expect(usagePageSource).toContain("import { ApiError, fetchAnalysis, fetchCpaApiKeyOptions, fetchCpaApiKeys, fetchStatus, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventSourceFilterOptions, fetchUsageEvents, logout, updateCpaApiKeyAlias } from '@/lib/api';")
+    expect(usagePageSource).toContain("import { ApiError, fetchAnalysis, fetchCodexState, fetchCpaApiKeyOptions, fetchCpaApiKeys, fetchStatus, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventSourceFilterOptions, fetchUsageEvents, logout, updateCpaApiKeyAlias } from '@/lib/api';")
     expect(usagePageSource.indexOf("t('usage_stats.check_updates')")).toBeLessThan(usagePageSource.indexOf("t('common.logout')"))
     expect(usagePageStyles).toContain('.signOutSwitcher')
     expect(usagePageStyles).toContain('.signOutPill')

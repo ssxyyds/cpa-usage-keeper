@@ -13,6 +13,7 @@ import { useCredentialPages } from './useCredentialPages'
 import { useQuotaCache } from './useQuotaCache'
 import { ApiError, fetchCodexState, refreshCodexState, updateCodexManualScore, type UsageIdentityPageSort } from '@/lib/api'
 import { quotaRefreshDisplayError, useQuotaRefreshTasks } from './useQuotaRefreshTasks'
+import type { CodexQuotaState, CodexStateResponse, UsageQuotaRow } from '@/lib/types'
 
 interface UseCredentialsTabDataOptions {
   enabled: boolean
@@ -31,6 +32,7 @@ export interface CredentialsTabData {
   authFileTotalPages: number
   aiProviderTotalPages: number
   authFileActiveOnly: boolean
+  authFileSearch: string
   authFileSort: UsageIdentityPageSort
   aiProviderSort: UsageIdentityPageSort
   setAuthFilePage: (page: number) => void
@@ -38,6 +40,7 @@ export interface CredentialsTabData {
   setAuthFilePageSize: (pageSize: number) => void
   setAiProviderPageSize: (pageSize: number) => void
   setAuthFileActiveOnly: (activeOnly: boolean) => void
+  setAuthFileSearch: (search: string) => void
   setAuthFileSort: (sort: UsageIdentityPageSort) => void
   setAiProviderSort: (sort: UsageIdentityPageSort) => void
   loading: boolean
@@ -71,6 +74,7 @@ export function useCredentialsTabData({ enabled, onAuthRequired }: UseCredential
       if (codexStateRequestControllerRef.current !== controller) {
         return
       }
+      const currentAuthIndexes = codexCurrentAuthIndexSet(response)
       const nextStates: Record<string, CodexCredentialState> = {}
       for (const account of response['codex-state'] ?? []) {
         const authIndex = account.auth_index?.trim()
@@ -81,6 +85,8 @@ export function useCredentialsTabData({ enabled, onAuthRequired }: UseCredential
           score: account.codex_computed_score ?? account.codex_score_explanation?.computed_score_live,
           manualAdjustment: account.codex_manual_score_adjustment ?? account.codex_score_explanation?.manual_adjustment,
           scoreReason: account.codex_score_reason ?? account.codex_last_selection_reason,
+          current: account.on_device === true || currentAuthIndexes.has(authIndex),
+          quota: codexQuotaToRows(account.codex_quota),
         }
       }
       setCodexCredentialStates(nextStates)
@@ -109,7 +115,11 @@ export function useCredentialsTabData({ enabled, onAuthRequired }: UseCredential
       return
     }
     void refreshCodexCredentialStates()
+    const intervalId = window.setInterval(() => {
+      void refreshCodexCredentialStates()
+    }, 15_000)
     return () => {
+      window.clearInterval(intervalId)
       codexStateRequestControllerRef.current?.abort()
       codexStateRequestControllerRef.current = null
     }
@@ -196,6 +206,7 @@ export function useCredentialsTabData({ enabled, onAuthRequired }: UseCredential
     authFileTotalPages: credentialPages.authFileTotalPages,
     aiProviderTotalPages: credentialPages.aiProviderTotalPages,
     authFileActiveOnly: credentialPages.authFileActiveOnly,
+    authFileSearch: credentialPages.authFileSearch,
     authFileSort: credentialPages.authFileSort,
     aiProviderSort: credentialPages.aiProviderSort,
     setAuthFilePage: credentialPages.setAuthFilePage,
@@ -203,6 +214,7 @@ export function useCredentialsTabData({ enabled, onAuthRequired }: UseCredential
     setAuthFilePageSize: credentialPages.setAuthFilePageSize,
     setAiProviderPageSize: credentialPages.setAiProviderPageSize,
     setAuthFileActiveOnly: credentialPages.setAuthFileActiveOnly,
+    setAuthFileSearch: credentialPages.setAuthFileSearch,
     setAuthFileSort: credentialPages.setAuthFileSort,
     setAiProviderSort: credentialPages.setAiProviderSort,
     loading: credentialPages.loading,
@@ -219,3 +231,49 @@ export function useCredentialsTabData({ enabled, onAuthRequired }: UseCredential
 }
 
 export { quotaRefreshDisplayError }
+
+export function codexCurrentAuthIndexSet(response: CodexStateResponse): Set<string> {
+  const currentAuthIndexes = new Set<string>()
+  for (const selection of response.current_selections ?? []) {
+    const rawSelection = selection as typeof selection & { authIndex?: string }
+    const authIndex = (selection.auth_index ?? rawSelection.authIndex)?.trim()
+    if (authIndex) {
+      currentAuthIndexes.add(authIndex)
+    }
+  }
+  for (const account of response['codex-state'] ?? []) {
+    const authIndex = account.auth_index?.trim()
+    if (authIndex && account.on_device === true) {
+      currentAuthIndexes.add(authIndex)
+    }
+  }
+  return currentAuthIndexes
+}
+
+function codexQuotaToRows(quota: CodexQuotaState | undefined): UsageQuotaRow[] | undefined {
+  if (!quota) {
+    return undefined
+  }
+  const rows = [
+    codexQuotaWindowToRow('codex_quota.five_hour', '5h', quota.five_hour, 18_000),
+    codexQuotaWindowToRow('codex_quota.weekly', 'Weekly', quota.weekly, 604_800),
+  ].filter((row): row is UsageQuotaRow => Boolean(row))
+  return rows.length > 0 ? rows : undefined
+}
+
+function codexQuotaWindowToRow(key: string, label: string, window: CodexQuotaState['five_hour'], seconds: number): UsageQuotaRow | undefined {
+  if (!window || !Number.isFinite(window.remaining) || !Number.isFinite(window.limit) || (window.limit ?? 0) <= 0) {
+    return undefined
+  }
+  const remaining = Number(window.remaining)
+  const limit = Number(window.limit)
+  return {
+    key,
+    label,
+    remaining,
+    limit,
+    remainingFraction: remaining / limit,
+    resetAt: window.reset_at,
+    window: { seconds },
+  }
+}

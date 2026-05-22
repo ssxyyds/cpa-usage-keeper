@@ -1,4 +1,5 @@
 import { useTranslation } from 'react-i18next'
+import { useState, type FormEvent } from 'react'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { IconRefreshCw } from '@/components/ui/icons'
 import styles from './CredentialSections.module.scss'
@@ -13,6 +14,7 @@ interface AuthFileCredentialsSectionProps {
   totalPages: number
   pageSize: number
   activeOnly: boolean
+  search: string
   sort: UsageIdentityPageSort
   loading: boolean
   quotaRefreshing: boolean
@@ -20,12 +22,14 @@ interface AuthFileCredentialsSectionProps {
   onPageChange: (page: number) => void
   onPageSizeChange: (pageSize: number) => void
   onActiveOnlyChange: (activeOnly: boolean) => void
+  onSearchChange: (search: string) => void
   onSortChange: (sort: UsageIdentityPageSort) => void
   onRefreshQuota: () => Promise<void>
   onRefreshQuotaForAuthIndex: (authIndex: string) => Promise<void>
+  onUpdateCodexManualScore: (authIndex: string, adjustment: number) => Promise<void>
 }
 
-export function AuthFileCredentialsSection({ rows, total, page, totalPages, pageSize, activeOnly, sort, loading, quotaRefreshing, quotaRefreshError, onPageChange, onPageSizeChange, onActiveOnlyChange, onSortChange, onRefreshQuota, onRefreshQuotaForAuthIndex }: AuthFileCredentialsSectionProps) {
+export function AuthFileCredentialsSection({ rows, total, page, totalPages, pageSize, activeOnly, search, sort, loading, quotaRefreshing, quotaRefreshError, onPageChange, onPageSizeChange, onActiveOnlyChange, onSearchChange, onSortChange, onRefreshQuota, onRefreshQuotaForAuthIndex, onUpdateCodexManualScore }: AuthFileCredentialsSectionProps) {
   const { t } = useTranslation()
   const canRefresh = rows.some((row) => !isRowRefreshing(row) && !row.identity.is_deleted) && !quotaRefreshing
 
@@ -40,6 +44,18 @@ export function AuthFileCredentialsSection({ rows, total, page, totalPages, page
           <input type="checkbox" checked={activeOnly} onChange={(event) => onActiveOnlyChange(event.target.checked)} />
           <span>{t('usage_stats.credentials_auth_files_active_only')}</span>
         </label>
+      )}
+      subtitleExtra={(
+        <div className={styles.credentialSearchBar}>
+          <label className={styles.credentialSearchControl}>
+            <span>{t('usage_stats.credentials_search_label')}</span>
+            <input
+              value={search}
+              onChange={(event) => onSearchChange(event.target.value)}
+              placeholder={t('usage_stats.credentials_search_placeholder')}
+            />
+          </label>
+        </div>
       )}
       actions={(
         <div className={styles.credentialRefreshSwitcher}>
@@ -75,16 +91,25 @@ export function AuthFileCredentialsSection({ rows, total, page, totalPages, page
                 {row.remainingDaysLabel && <span className={styles.credentialRemainingDaysBadge}>{row.remainingDaysLabel}</span>}
               </span>
             )}
-            badges={null}
+            badges={row.isCodexCurrent ? <span className={styles.credentialCurrentBadge}>{t('usage_stats.codex_pool_current_badge')}</span> : null}
             metrics={(
               <>
                 {row.totalRequests > 0 && <MetricPill label={t('usage_stats.total_requests')} value={<RequestMetric total={row.totalRequests} success={row.successCount} failure={row.failureCount} />} />}
                 {row.successRate !== null && <MetricPill label={t('usage_stats.success_rate')} value={<TonePercent value={row.successRate} tone={successRateTone(row.successRate)} />} />}
                 {row.totalTokens > 0 && <MetricPill label={t('usage_stats.total_tokens')} value={formatCredentialNumber(row.totalTokens)} />}
                 {row.cacheRate !== null && <MetricPill label={t('usage_stats.cache_rate')} value={<TonePercent value={row.cacheRate} tone={cacheRateTone(row.cacheRate)} />} />}
+                {(row.codexScore !== undefined || isCodexCredentialRow(row)) && (
+                  <MetricPill
+                    className={styles.credentialCodexScorePill}
+                    label={t('usage_stats.codex_pool_score')}
+                    value={(
+                      <CodexScoreMetric row={row} onUpdateCodexManualScore={onUpdateCodexManualScore} />
+                    )}
+                  />
+                )}
               </>
             )}
-            rowClassName={styles.authFileCredentialRow}
+            rowClassName={`${styles.authFileCredentialRow} ${row.isCodexCurrent ? styles.credentialRowCurrent : ''}`.trim()}
             side={(
               <div className={styles.credentialQuotaSideWithAction}>
                 <AuthFileQuotaPanel row={row} />
@@ -112,6 +137,8 @@ export function AuthFileCredentialsSection({ rows, total, page, totalPages, page
         sortLabel={t('usage_stats.credentials_sort_label')}
         sortOptions={[
           { value: 'priority', label: t('usage_stats.credentials_sort_priority') },
+          { value: 'codex_score_desc', label: t('usage_stats.credentials_sort_codex_score_desc') },
+          { value: 'codex_score_asc', label: t('usage_stats.credentials_sort_codex_score_asc') },
           { value: 'total_requests', label: t('usage_stats.credentials_sort_total_requests') },
           { value: 'total_tokens', label: t('usage_stats.credentials_sort_total_tokens') },
         ]}
@@ -126,8 +153,66 @@ export function AuthFileCredentialsSection({ rows, total, page, totalPages, page
   )
 }
 
+function isCodexCredentialRow(row: AuthFileCredentialRow): boolean {
+  return [row.identity.provider, row.identity.type, row.providerLabel, row.typeLabel]
+    .some((value) => String(value ?? '').trim().toLowerCase().includes('codex'))
+}
+
+function CodexScoreMetric({ row, onUpdateCodexManualScore }: { row: AuthFileCredentialRow; onUpdateCodexManualScore: (authIndex: string, adjustment: number) => Promise<void> }) {
+  const { t } = useTranslation()
+  const [editing, setEditing] = useState(false)
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const data = new FormData(event.currentTarget)
+    const adjustment = Number(data.get('manual_score'))
+    if (!Number.isFinite(adjustment)) {
+      return
+    }
+    void onUpdateCodexManualScore(row.identity.identity, adjustment)
+    setEditing(false)
+  }
+
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        className={styles.credentialCodexScoreReadonly}
+        onClick={() => setEditing(true)}
+        disabled={row.identity.is_deleted}
+        aria-label={t('usage_stats.credentials_codex_score_edit')}
+        title={row.codexScoreReason || t('usage_stats.codex_pool_score_tip')}
+      >
+        <span className={styles.credentialCodexScoreValue}>{formatCodexScore(row.codexScore)}</span>
+      </button>
+    )
+  }
+
+  return (
+    <form className={styles.credentialCodexScoreControl} onSubmit={handleSubmit} title={row.codexScoreReason}>
+      <span className={styles.credentialCodexScoreValue}>{formatCodexScore(row.codexScore)}</span>
+      <input
+        className={styles.credentialCodexScoreInput}
+        name="manual_score"
+        type="number"
+        min="-100"
+        max="100"
+        defaultValue={row.codexManualScoreAdjustment ?? 0}
+        aria-label={t('usage_stats.codex_pool_manual')}
+      />
+      <button type="submit" className={styles.credentialCodexScoreSave} disabled={row.identity.is_deleted}>{t('common.save')}</button>
+    </form>
+  )
+}
+
 function isRowRefreshing(row: AuthFileCredentialRow): boolean {
   return row.refreshStatus === 'queued' || row.refreshStatus === 'running'
+}
+
+function formatCodexScore(value: number | undefined): string {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return '-'
+  }
+  return new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(value)
 }
 
 function CredentialPlanBadge({ children, tone = 'neutral' }: { children: string; tone?: PlanTypeTone }) {

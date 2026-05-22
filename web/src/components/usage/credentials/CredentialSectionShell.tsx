@@ -8,6 +8,7 @@ interface CredentialSectionShellProps {
   subtitle: string
   countLabel: string
   titleExtra?: ReactNode
+  subtitleExtra?: ReactNode
   actions?: ReactNode
   children: ReactNode
 }
@@ -21,7 +22,7 @@ interface CredentialRowShellProps {
   rowClassName?: string
 }
 
-export function CredentialSectionShell({ eyebrow, title, subtitle, countLabel, titleExtra, actions, children }: CredentialSectionShellProps) {
+export function CredentialSectionShell({ eyebrow, title, subtitle, countLabel, titleExtra, subtitleExtra, actions, children }: CredentialSectionShellProps) {
   return (
     <section className={styles.credentialSectionCard}>
       <div className={styles.credentialSectionHeader}>
@@ -33,6 +34,7 @@ export function CredentialSectionShell({ eyebrow, title, subtitle, countLabel, t
             {titleExtra}
           </div>
           <p className={styles.credentialSectionSubtitle}>{subtitle}</p>
+          {subtitleExtra && <div className={styles.credentialSectionSubtitleExtra}>{subtitleExtra}</div>}
         </div>
         {actions && <div className={styles.credentialSectionActions}>{actions}</div>}
       </div>
