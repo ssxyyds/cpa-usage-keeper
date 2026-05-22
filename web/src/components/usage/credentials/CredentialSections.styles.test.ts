@@ -55,6 +55,7 @@ describe('Credential section styles', () => {
     expect(authFileSectionSource).toContain('credentialCodexScorePill')
     expect(authFileSectionSource).toContain('CodexScoreMetric')
     expect(authFileSectionSource).toContain('credentialCodexScoreReadonly')
+    expect(authFileSectionSource).not.toContain('<form className={styles.credentialCodexScoreControl}')
     expect(authFileSectionSource).not.toContain('credentialCodexScoreEdit')
     expect(credentialStyles).toMatch(/\.credentialCodexScorePill\s*\{[\s\S]*?grid-column:\s*span 1;/)
     expect(credentialStyles).toMatch(/\.credentialCodexScorePill\s*\{[\s\S]*?justify-self:\s*start;/)

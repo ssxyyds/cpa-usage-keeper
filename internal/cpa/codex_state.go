@@ -33,6 +33,13 @@ func (c *Client) RecalculateCodexState(ctx context.Context) (json.RawMessage, er
 
 func (c *Client) UpdateCodexManualScore(ctx context.Context, request codexpool.ManualScoreRequest) (json.RawMessage, error) {
 	var raw json.RawMessage
-	_, _, err := c.doManagementJSONPatchRequest(ctx, cpaManagementCodexManualScoreEndpoint, request, &raw, "codex manual score")
+	body := struct {
+		AuthIndex string  `json:"auth_index"`
+		Value     float64 `json:"value"`
+	}{
+		AuthIndex: request.AuthIndex,
+		Value:     request.Adjustment,
+	}
+	_, _, err := c.doManagementJSONPatchRequest(ctx, cpaManagementCodexManualScoreEndpoint, body, &raw, "codex manual score")
 	return raw, err
 }

@@ -297,7 +297,10 @@ export interface UsageQuotaRefreshResponse {
 export interface CodexQuotaWindowState {
   remaining?: number
   limit?: number
-  reset_at?: string
+  reset_at?: string | number
+  resetAt?: string | number
+  reset_after_seconds?: number
+  resetAfterSeconds?: number
 }
 
 export interface CodexQuotaState {

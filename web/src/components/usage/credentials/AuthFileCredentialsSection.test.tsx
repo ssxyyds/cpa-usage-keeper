@@ -253,4 +253,167 @@ describe('AuthFileCredentialsSection', () => {
     expect(html.indexOf('usage_stats.credentials_auth_files_subtitle')).toBeLessThan(html.indexOf('usage_stats.credentials_search_label'))
     expect(html.indexOf('usage_stats.credentials_search_label')).toBeLessThan(html.indexOf('usage_stats.credentials_auth_files_empty'))
   })
+
+  it('keeps Weekly quota in the right slot when 5h quota is unavailable', () => {
+    const row = {
+      identity: {
+        id: '1',
+        name: 'Codex Account',
+        auth_type: 1,
+        auth_type_name: 'auth file',
+        identity: 'codex-1',
+        type: 'codex',
+        provider: 'codex',
+        total_requests: 0,
+        success_count: 0,
+        failure_count: 0,
+        input_tokens: 0,
+        output_tokens: 0,
+        reasoning_tokens: 0,
+        cached_tokens: 0,
+        total_tokens: 0,
+        last_aggregated_usage_event_id: '0',
+        is_deleted: false,
+        created_at: '2026-05-10T00:00:00Z',
+        updated_at: '2026-05-10T00:00:00Z',
+      },
+      displayName: 'Codex Account',
+      maskedIdentity: 'codex-1',
+      providerLabel: 'codex',
+      typeLabel: 'codex',
+      authTypeLabel: 'auth file',
+      totalRequests: 0,
+      successCount: 0,
+      failureCount: 0,
+      successRate: null,
+      totalTokens: 0,
+      cacheRate: null,
+      quota: [],
+      quotaLoading: false,
+      primaryQuota: undefined,
+      secondaryQuota: {
+        key: 'codex_quota.weekly',
+        label: 'Weekly',
+        percent: 100,
+        barPercent: 100,
+        percentKind: 'remaining',
+        status: 'ok',
+        resetText: '2026-05-14T12:00:00Z',
+      },
+      extraQuota: [],
+    } as AuthFileCredentialRow
+
+    const html = renderToStaticMarkup(
+      <AuthFileCredentialsSection
+        rows={[row]}
+        total={1}
+        page={1}
+        totalPages={1}
+        pageSize={10}
+        activeOnly={false}
+        search=""
+        sort="codex_score_desc"
+        loading={false}
+        quotaRefreshing={false}
+        quotaRefreshError=""
+        onPageChange={() => undefined}
+        onPageSizeChange={() => undefined}
+        onActiveOnlyChange={() => undefined}
+        onSearchChange={() => undefined}
+        onSortChange={() => undefined}
+        onRefreshQuota={async () => undefined}
+        onRefreshQuotaForAuthIndex={async () => undefined}
+        onUpdateCodexManualScore={async () => undefined}
+      />,
+    )
+
+    expect(html).toContain('data-quota-slot="five-hour"')
+    expect(html).toContain('data-quota-slot="weekly"')
+    expect(html.indexOf('data-quota-slot="five-hour"')).toBeLessThan(html.indexOf('data-quota-slot="weekly"'))
+    expect(html.indexOf('>5h<')).toBeLessThan(html.indexOf('>Weekly<'))
+  })
+
+  it('shows a reset placeholder when a quota bucket has no reset timestamp', () => {
+    const row = {
+      identity: {
+        id: '1',
+        name: 'Codex Account',
+        auth_type: 1,
+        auth_type_name: 'auth file',
+        identity: 'codex-1',
+        type: 'codex',
+        provider: 'codex',
+        total_requests: 0,
+        success_count: 0,
+        failure_count: 0,
+        input_tokens: 0,
+        output_tokens: 0,
+        reasoning_tokens: 0,
+        cached_tokens: 0,
+        total_tokens: 0,
+        last_aggregated_usage_event_id: '0',
+        is_deleted: false,
+        created_at: '2026-05-10T00:00:00Z',
+        updated_at: '2026-05-10T00:00:00Z',
+      },
+      displayName: 'Codex Account',
+      maskedIdentity: 'codex-1',
+      providerLabel: 'codex',
+      typeLabel: 'codex',
+      authTypeLabel: 'auth file',
+      totalRequests: 0,
+      successCount: 0,
+      failureCount: 0,
+      successRate: null,
+      totalTokens: 0,
+      cacheRate: null,
+      quota: [],
+      quotaLoading: false,
+      primaryQuota: {
+        key: 'codex_quota.five_hour',
+        label: '5h',
+        percent: 60,
+        barPercent: 60,
+        percentKind: 'remaining',
+        status: 'ok',
+        resetText: '2026-05-24T02:19:52Z',
+      },
+      secondaryQuota: {
+        key: 'codex_quota.weekly',
+        label: 'Weekly',
+        percent: 100,
+        barPercent: 100,
+        percentKind: 'remaining',
+        status: 'ok',
+      },
+      extraQuota: [],
+    } as AuthFileCredentialRow
+
+    const html = renderToStaticMarkup(
+      <AuthFileCredentialsSection
+        rows={[row]}
+        total={1}
+        page={1}
+        totalPages={1}
+        pageSize={10}
+        activeOnly={false}
+        search=""
+        sort="codex_score_desc"
+        loading={false}
+        quotaRefreshing={false}
+        quotaRefreshError=""
+        onPageChange={() => undefined}
+        onPageSizeChange={() => undefined}
+        onActiveOnlyChange={() => undefined}
+        onSearchChange={() => undefined}
+        onSortChange={() => undefined}
+        onRefreshQuota={async () => undefined}
+        onRefreshQuotaForAuthIndex={async () => undefined}
+        onUpdateCodexManualScore={async () => undefined}
+      />,
+    )
+
+    expect(html).toContain('data-quota-slot="weekly"')
+    expect(html).toContain('<span>-</span>')
+  })
 })

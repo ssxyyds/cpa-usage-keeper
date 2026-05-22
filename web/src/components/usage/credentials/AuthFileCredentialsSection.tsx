@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { useState, type FormEvent } from 'react'
+import { useState, type KeyboardEvent } from 'react'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { IconRefreshCw } from '@/components/ui/icons'
 import styles from './CredentialSections.module.scss'
@@ -161,15 +161,34 @@ function isCodexCredentialRow(row: AuthFileCredentialRow): boolean {
 function CodexScoreMetric({ row, onUpdateCodexManualScore }: { row: AuthFileCredentialRow; onUpdateCodexManualScore: (authIndex: string, adjustment: number) => Promise<void> }) {
   const { t } = useTranslation()
   const [editing, setEditing] = useState(false)
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    const data = new FormData(event.currentTarget)
-    const adjustment = Number(data.get('manual_score'))
+  const [draftAdjustment, setDraftAdjustment] = useState(() => String(row.codexManualScoreAdjustment ?? 0))
+  const [saving, setSaving] = useState(false)
+  const saveManualScore = async () => {
+    const adjustment = Number(draftAdjustment)
     if (!Number.isFinite(adjustment)) {
       return
     }
-    void onUpdateCodexManualScore(row.identity.identity, adjustment)
-    setEditing(false)
+    setSaving(true)
+    try {
+      await onUpdateCodexManualScore(row.identity.identity, adjustment)
+      setEditing(false)
+    } finally {
+      setSaving(false)
+    }
+  }
+  const startEditing = () => {
+    setDraftAdjustment(String(row.codexManualScoreAdjustment ?? 0))
+    setEditing(true)
+  }
+  const handleInputKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      void saveManualScore()
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      setEditing(false)
+    }
   }
 
   if (!editing) {
@@ -177,7 +196,7 @@ function CodexScoreMetric({ row, onUpdateCodexManualScore }: { row: AuthFileCred
       <button
         type="button"
         className={styles.credentialCodexScoreReadonly}
-        onClick={() => setEditing(true)}
+        onClick={startEditing}
         disabled={row.identity.is_deleted}
         aria-label={t('usage_stats.credentials_codex_score_edit')}
         title={row.codexScoreReason || t('usage_stats.codex_pool_score_tip')}
@@ -188,19 +207,20 @@ function CodexScoreMetric({ row, onUpdateCodexManualScore }: { row: AuthFileCred
   }
 
   return (
-    <form className={styles.credentialCodexScoreControl} onSubmit={handleSubmit} title={row.codexScoreReason}>
+    <span className={styles.credentialCodexScoreControl} title={row.codexScoreReason}>
       <span className={styles.credentialCodexScoreValue}>{formatCodexScore(row.codexScore)}</span>
       <input
         className={styles.credentialCodexScoreInput}
-        name="manual_score"
         type="number"
         min="-100"
         max="100"
-        defaultValue={row.codexManualScoreAdjustment ?? 0}
+        value={draftAdjustment}
+        onChange={(event) => setDraftAdjustment(event.target.value)}
+        onKeyDown={handleInputKeyDown}
         aria-label={t('usage_stats.codex_pool_manual')}
       />
-      <button type="submit" className={styles.credentialCodexScoreSave} disabled={row.identity.is_deleted}>{t('common.save')}</button>
-    </form>
+      <button type="button" className={styles.credentialCodexScoreSave} onClick={() => void saveManualScore()} disabled={row.identity.is_deleted || saving}>{saving ? t('common.loading') : t('common.save')}</button>
+    </span>
   )
 }
 
@@ -239,9 +259,9 @@ function AuthFileQuotaPanel({ row }: { row: AuthFileCredentialRow }) {
   return (
     <div className={styles.credentialQuotaPanel}>
       <div className={styles.credentialQuotaBars}>
-        {/* 主/次窗口固定优先展示，额外窗口放到下方 chips，避免宽度被无限撑开。 */}
-        {row.primaryQuota && <QuotaBar quota={row.primaryQuota} />}
-        {row.secondaryQuota && <QuotaBar quota={row.secondaryQuota} />}
+        {/* 5h/Weekly 使用固定槽位，避免只有 Weekly 时滑到左侧造成误读。 */}
+        <QuotaSlot slot="five-hour" label="5h" quota={row.primaryQuota} />
+        <QuotaSlot slot="weekly" label="Weekly" quota={row.secondaryQuota} />
       </div>
       {row.extraQuota.length > 0 && (
         <div className={styles.credentialQuotaChips}>
@@ -253,6 +273,30 @@ function AuthFileQuotaPanel({ row }: { row: AuthFileCredentialRow }) {
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+function QuotaSlot({ slot, label, quota }: { slot: 'five-hour' | 'weekly'; label: string; quota?: DisplayQuota }) {
+  if (quota) {
+    return <QuotaBar quota={quota} slot={slot} />
+  }
+  return (
+    <div className={`${styles.credentialQuotaBarBlock} ${styles.credentialQuotaBarPlaceholder}`.trim()} data-quota-slot={slot}>
+      <div className={styles.credentialQuotaBarHeader}>
+        <span className={styles.credentialQuotaLabelGroup}>
+          <span>{label}</span>
+        </span>
+        <span className={styles.credentialQuotaValueGroup}>
+          <strong>-</strong>
+        </span>
+      </div>
+      <div className={styles.credentialQuotaTrack}>
+        <span className={styles.credentialQuotaFill} style={{ width: '0%' }} />
+      </div>
+      <div className={styles.credentialQuotaMeta}>
+        <span>-</span>
+      </div>
     </div>
   )
 }
@@ -275,7 +319,7 @@ export function formatQuotaResetLabel(resetAt: string): string {
   return `${duration} (${month}/${day} ${hour}:${minute})`
 }
 
-function QuotaBar({ quota }: { quota: DisplayQuota }) {
+function QuotaBar({ quota, slot }: { quota: DisplayQuota; slot?: 'five-hour' | 'weekly' }) {
   // 条宽使用剩余额度百分比，颜色跟随剩余风险状态从绿到黄到红。
   const { t } = useTranslation()
   const percent = quota.barPercent ?? 0
@@ -284,7 +328,7 @@ function QuotaBar({ quota }: { quota: DisplayQuota }) {
   const resetLabel = quota.resetText ? formatQuotaResetLabel(quota.resetText) : ''
 
   return (
-    <div className={styles.credentialQuotaBarBlock}>
+    <div className={styles.credentialQuotaBarBlock} data-quota-slot={slot}>
       <div className={styles.credentialQuotaBarHeader}>
         <span className={styles.credentialQuotaLabelGroup}>
           <span>{quota.label}</span>
@@ -299,7 +343,7 @@ function QuotaBar({ quota }: { quota: DisplayQuota }) {
         <span className={`${styles.credentialQuotaFill} ${credentialToneClassName('credentialQuotaFill', quota.status)}`.trim()} style={{ width }} />
       </div>
       <div className={styles.credentialQuotaMeta}>
-        {resetLabel && <span>{resetLabel}</span>}
+        <span>{resetLabel || '-'}</span>
       </div>
     </div>
   )

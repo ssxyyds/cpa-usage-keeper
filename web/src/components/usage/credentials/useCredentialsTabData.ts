@@ -234,11 +234,28 @@ export { quotaRefreshDisplayError }
 
 export function codexCurrentAuthIndexSet(response: CodexStateResponse): Set<string> {
   const currentAuthIndexes = new Set<string>()
+  const authIndexByID = new Map<string, string>()
+  for (const account of response['codex-state'] ?? []) {
+    const id = account.id?.trim()
+    const authIndex = account.auth_index?.trim()
+    if (id && authIndex) {
+      authIndexByID.set(id, authIndex)
+    }
+  }
   for (const selection of response.current_selections ?? []) {
     const rawSelection = selection as typeof selection & { authIndex?: string }
     const authIndex = (selection.auth_index ?? rawSelection.authIndex)?.trim()
     if (authIndex) {
       currentAuthIndexes.add(authIndex)
+      continue
+    }
+    const selectedId = selection.id?.trim()
+    if (!selectedId) {
+      continue
+    }
+    const matchingAuthIndex = authIndexByID.get(selectedId)
+    if (matchingAuthIndex) {
+      currentAuthIndexes.add(matchingAuthIndex)
     }
   }
   for (const account of response['codex-state'] ?? []) {
@@ -250,7 +267,7 @@ export function codexCurrentAuthIndexSet(response: CodexStateResponse): Set<stri
   return currentAuthIndexes
 }
 
-function codexQuotaToRows(quota: CodexQuotaState | undefined): UsageQuotaRow[] | undefined {
+export function codexQuotaToRows(quota: CodexQuotaState | undefined): UsageQuotaRow[] | undefined {
   if (!quota) {
     return undefined
   }
@@ -273,7 +290,25 @@ function codexQuotaWindowToRow(key: string, label: string, window: CodexQuotaSta
     remaining,
     limit,
     remainingFraction: remaining / limit,
-    resetAt: window.reset_at,
+    resetAt: codexQuotaResetAt(window),
     window: { seconds },
   }
+}
+
+function codexQuotaResetAt(window: CodexQuotaState['five_hour']): string | undefined {
+  if (!window) {
+    return undefined
+  }
+  const rawResetAt = window.reset_at ?? window.resetAt
+  if (typeof rawResetAt === 'string' && rawResetAt.trim()) {
+    return rawResetAt.trim()
+  }
+  if (typeof rawResetAt === 'number' && Number.isFinite(rawResetAt) && rawResetAt > 0) {
+    return new Date(rawResetAt * 1000).toISOString()
+  }
+  const resetAfterSeconds = window.reset_after_seconds ?? window.resetAfterSeconds
+  if (typeof resetAfterSeconds === 'number' && Number.isFinite(resetAfterSeconds) && resetAfterSeconds > 0) {
+    return new Date(Date.now() + resetAfterSeconds * 1000).toISOString()
+  }
+  return undefined
 }

@@ -90,11 +90,14 @@ func TestUpdateCodexManualScoreUsesPatch(t *testing.T) {
 		if r.Method != http.MethodPatch || r.URL.Path != cpaManagementCodexManualScoreEndpoint {
 			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
 		}
-		var body codexpool.ManualScoreRequest
+		var body struct {
+			AuthIndex string   `json:"auth_index"`
+			Value     *float64 `json:"value"`
+		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			t.Fatalf("decode body: %v", err)
 		}
-		if body.AuthIndex != "codex-1" || body.Adjustment != 15 {
+		if body.AuthIndex != "codex-1" || body.Value == nil || *body.Value != 15 {
 			t.Fatalf("unexpected manual score body: %+v", body)
 		}
 		_, _ = w.Write([]byte(`{"ok":true}`))
