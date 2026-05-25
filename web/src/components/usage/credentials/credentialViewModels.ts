@@ -1,7 +1,8 @@
-import type { UsageIdentity, UsageQuotaRow } from '@/lib/types'
+import type { UsageIdentity, UsageQuotaRow, UsageWindowCostRecord } from '@/lib/types'
 import { calculateCacheRate } from '@/utils/usage'
 
 export const CREDENTIALS_PAGE_SIZE = 10
+const MIN_CODEX_QUOTA_ESTIMATE_USED_RATIO = 0.01
 
 type QuotaStatus = 'ok' | 'warning' | 'danger' | 'unknown'
 export type PlanTypeTone = 'free' | 'team' | 'plus' | 'pro' | 'neutral'
@@ -25,7 +26,9 @@ export interface CodexCredentialState {
   manualAdjustment?: number
   scoreReason?: string
   current?: boolean
+  planType?: string
   quota?: UsageQuotaRow[]
+  usageWindowCosts?: UsageWindowCostRecord[]
   status?: string
   statusMessage?: string
   unavailable?: boolean
@@ -153,7 +156,7 @@ export function buildAuthFileCredentialRows(
     const codexState = codexStates.get(identity.identity)
     const quota = codexState?.quota ?? quotas.get(identity.identity) ?? []
     const displayQuotas = quota.map(toDisplayQuota)
-    const planType = firstNonEmpty(...quota.map((row) => row.planType), identity.plan_type)
+    const planType = firstNonEmpty(codexState?.planType, ...quota.map((row) => row.planType), identity.plan_type)
     // 先挑 5h 主窗口，再挑 Weekly 次窗口，其余限额保留到 chips 中展示。
     const primaryQuota = displayQuotas.find(isPrimaryQuota)
     const secondaryQuota = displayQuotas.find((item) => item !== primaryQuota && isSecondaryQuota(item))
@@ -195,7 +198,7 @@ export function buildAuthFileCredentialRows(
       primaryQuota,
       secondaryQuota,
       extraQuota,
-      quotaTotalAmount: quotaTotalAmount(displayQuotas),
+      quotaTotalAmount: quotaTotalAmount(identity, codexState, displayQuotas),
     }
   })
 }
@@ -373,19 +376,28 @@ function isSecondaryQuota(quota: DisplayQuota): boolean {
   return haystack.includes('weekly') || haystack.includes('seven_day')
 }
 
-function quotaTotalAmount(quotas: DisplayQuota[]): number | undefined {
+function quotaTotalAmount(identity: UsageIdentity, codexState: CodexCredentialState | undefined, quotas: DisplayQuota[]): number | undefined {
+  if (!codexState && !isCodexIdentity(identity)) {
+    return undefined
+  }
   const weekly = quotas.find(isSecondaryQuota)
-  if (weekly?.limit !== undefined) {
-    return weekly.limit
+  if (!weekly || weekly.remaining === undefined || weekly.limit === undefined || weekly.limit <= 0) {
+    return undefined
   }
-  let maxLimit: number | undefined
-  for (const quota of quotas) {
-    if (quota.limit === undefined) {
-      continue
-    }
-    maxLimit = maxLimit === undefined ? quota.limit : Math.max(maxLimit, quota.limit)
+  const usedRatio = 1 - weekly.remaining / weekly.limit
+  if (!Number.isFinite(usedRatio) || usedRatio < MIN_CODEX_QUOTA_ESTIMATE_USED_RATIO) {
+    return undefined
   }
-  return maxLimit
+  const weeklyCost = codexState?.usageWindowCosts?.find((record) => record.key === 'weekly' || record.key === 'codex_quota.weekly')
+  if (!weeklyCost || weeklyCost.cost_available !== true || !Number.isFinite(weeklyCost.total_cost) || weeklyCost.total_cost <= 0) {
+    return undefined
+  }
+  return weeklyCost.total_cost / usedRatio
+}
+
+function isCodexIdentity(identity: UsageIdentity): boolean {
+  return [identity.provider, identity.type]
+    .some((value) => String(value ?? '').trim().toLowerCase().includes('codex'))
 }
 
 function credentialDisplayName(identity: UsageIdentity): string {

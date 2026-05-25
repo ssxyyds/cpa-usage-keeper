@@ -137,7 +137,7 @@ The CPA巡检更新时间 is intentionally not shown in account rows because it 
 - Auth Files default to Codex score descending. If CPA marks an account through `on_device` or `current_selections`, that current account is pinned and highlighted above score order.
 - Auth File rows show two money values:
   - Token cost comes from the row's historical usage events, grouped by account/model and priced with the current model pricing settings. If a used model has no price and has billable tokens, the row marks cost as unavailable instead of pretending the value is exact.
-  - Quota amount comes from the account's Codex quota limit, preferring the weekly limit because weekly is the scheduling-critical quota for `codex-quota-score`.
+  - Estimated quota amount is inferred from the same weekly quota window: weekly-window token cost divided by the used ratio from CPA `weekly.remaining/weekly.limit`. CPA quota fields such as `weekly.limit` and `five_hour.limit` are quota units for bars/scoring, not money, and plan type defaults must not be displayed as account amount.
 - If CPA marks an account `status=error` or `unavailable=true`, Auth Files displays `unavailable_reason` or `last_error` details such as `401 unauthorized`. These rows are operationally different from accounts that simply have no quota data yet.
 - Rows do not show pool totals, current strategy, or CPA巡检更新时间.
 

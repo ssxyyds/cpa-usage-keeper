@@ -94,15 +94,16 @@ export function AuthFileCredentialsSection({ rows, total, page, totalPages, page
             badges={row.isCodexCurrent ? <span className={styles.credentialCurrentBadge}>{t('usage_stats.codex_pool_current_badge')}</span> : null}
             metrics={(
               <>
-                {row.totalRequests > 0 && <MetricPill label={t('usage_stats.total_requests')} value={<RequestMetric total={row.totalRequests} success={row.successCount} failure={row.failureCount} />} />}
-                {row.successRate !== null && <MetricPill label={t('usage_stats.success_rate')} value={<TonePercent value={row.successRate} tone={successRateTone(row.successRate)} />} />}
+                {row.totalRequests > 0 && <MetricPill className={styles.credentialCompactMetricPill} label={t('usage_stats.total_requests')} value={<RequestMetric total={row.totalRequests} success={row.successCount} failure={row.failureCount} />} />}
+                {row.successRate !== null && <MetricPill className={styles.credentialCompactMetricPill} label={t('usage_stats.success_rate')} value={<TonePercent value={row.successRate} tone={successRateTone(row.successRate)} />} />}
                 {row.totalTokens > 0 && (
                   <MetricPill
+                    className={styles.credentialTokenMetricPill}
                     label={t('usage_stats.total_tokens')}
                     value={<CredentialTokenMetric row={row} />}
                   />
                 )}
-                {row.cacheRate !== null && <MetricPill label={t('usage_stats.cache_rate')} value={<TonePercent value={row.cacheRate} tone={cacheRateTone(row.cacheRate)} />} />}
+                {row.cacheRate !== null && <MetricPill className={styles.credentialCompactMetricPill} label={t('usage_stats.cache_rate')} value={<TonePercent value={row.cacheRate} tone={cacheRateTone(row.cacheRate)} />} />}
                 {(row.codexScore !== undefined || isCodexCredentialRow(row)) && (
                   <MetricPill
                     className={styles.credentialCodexScorePill}
@@ -236,7 +237,7 @@ function isRowRefreshing(row: AuthFileCredentialRow): boolean {
 function CredentialTokenMetric({ row }: { row: AuthFileCredentialRow }) {
   const { t } = useTranslation()
   return (
-    <span className={styles.credentialMetricStack}>
+    <span className={styles.credentialTokenMetric}>
       <strong>{formatCredentialNumber(row.totalTokens)}</strong>
       {row.costAvailable ? (
         <span>{formatCredentialCurrency(row.totalCost)}</span>
@@ -282,7 +283,7 @@ function AuthFileQuotaPanel({ row }: { row: AuthFileCredentialRow }) {
       {row.quotaTotalAmount !== undefined && (
         <div className={styles.credentialQuotaAmount}>
           <span>{t('usage_stats.credentials_quota_amount')}</span>
-          <strong>{formatCredentialCurrency(row.quotaTotalAmount)}</strong>
+          <strong>{formatEstimatedQuotaCurrency(row.quotaTotalAmount)}</strong>
         </div>
       )}
       {(row.primaryQuota || row.secondaryQuota) && (
@@ -393,4 +394,8 @@ function QuotaBar({ quota, slot }: { quota: DisplayQuota; slot?: 'five-hour' | '
 
 function formatCredentialCurrency(value: number): string {
   return new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value)
+}
+
+function formatEstimatedQuotaCurrency(value: number): string {
+  return `≈US$${new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value)}`
 }

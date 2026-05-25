@@ -11,9 +11,11 @@ import {
 } from './credentialViewModels'
 import { useCredentialPages } from './useCredentialPages'
 import { useQuotaCache } from './useQuotaCache'
-import { ApiError, fetchCodexState, refreshCodexState, updateCodexManualScore, type UsageIdentityPageSort } from '@/lib/api'
+import { ApiError, fetchCodexState, fetchUsageWindowCosts, refreshCodexState, updateCodexManualScore, type UsageIdentityPageSort } from '@/lib/api'
 import { quotaRefreshDisplayError, useQuotaRefreshTasks } from './useQuotaRefreshTasks'
-import type { CodexQuotaState, CodexStateAccount, CodexStateResponse, UsageQuotaRow } from '@/lib/types'
+import type { CodexQuotaState, CodexStateAccount, CodexStateResponse, UsageQuotaRow, UsageWindowCostRecord, UsageWindowCostRequest } from '@/lib/types'
+
+const CODEX_WEEKLY_WINDOW_SECONDS = 604_800
 
 interface UseCredentialsTabDataOptions {
   enabled: boolean
@@ -74,14 +76,24 @@ export function useCredentialsTabData({ enabled, onAuthRequired }: UseCredential
       if (codexStateRequestControllerRef.current !== controller) {
         return
       }
+      const accounts = response['codex-state'] ?? []
       const currentAuthIndexes = codexCurrentAuthIndexSet(response)
+      const weeklyCostWindows = await loadCodexWeeklyUsageWindowCosts(accounts, controller.signal)
+      if (codexStateRequestControllerRef.current !== controller) {
+        return
+      }
       const nextStates: Record<string, CodexCredentialState> = {}
-      for (const account of response['codex-state'] ?? []) {
+      for (const account of accounts) {
         const authIndex = account.auth_index?.trim()
         if (!authIndex) {
           continue
         }
-        nextStates[authIndex] = codexCredentialStateFromAccount(account, currentAuthIndexes)
+        const state = codexCredentialStateFromAccount(account, currentAuthIndexes)
+        const windowCost = weeklyCostWindows.get(authIndex)
+        if (windowCost) {
+          state.usageWindowCosts = [windowCost]
+        }
+        nextStates[authIndex] = state
       }
       setCodexCredentialStates(nextStates)
     } catch (nextError) {
@@ -227,6 +239,63 @@ export function useCredentialsTabData({ enabled, onAuthRequired }: UseCredential
 
 export { quotaRefreshDisplayError }
 
+async function loadCodexWeeklyUsageWindowCosts(accounts: CodexStateAccount[], signal: AbortSignal): Promise<Map<string, UsageWindowCostRecord>> {
+  const windows = buildCodexWeeklyUsageWindowRequests(accounts)
+  if (windows.length === 0) {
+    return new Map()
+  }
+  const response = await fetchUsageWindowCosts(windows, signal)
+  const records = new Map<string, UsageWindowCostRecord>()
+  for (const record of response.windows ?? []) {
+    const authIndex = record.auth_index?.trim()
+    if (authIndex && (record.key === 'weekly' || record.key === 'codex_quota.weekly')) {
+      records.set(authIndex, record)
+    }
+  }
+  return records
+}
+
+export function buildCodexWeeklyUsageWindowRequests(accounts: CodexStateAccount[], now = new Date()): UsageWindowCostRequest[] {
+  const nowMs = now.getTime()
+  if (!Number.isFinite(nowMs)) {
+    return []
+  }
+  const windows: UsageWindowCostRequest[] = []
+  for (const account of accounts) {
+    const authIndex = account.auth_index?.trim()
+    const weekly = account.codex_quota?.weekly
+    if (!authIndex || !weekly || !Number.isFinite(weekly.remaining) || !Number.isFinite(weekly.limit) || (weekly.limit ?? 0) <= 0) {
+      continue
+    }
+    const resetAt = codexQuotaResetAt(weekly, now)
+    const resetMs = resetAt ? Date.parse(resetAt) : Number.NaN
+    if (!Number.isFinite(resetMs)) {
+      continue
+    }
+    const startMs = resetMs - CODEX_WEEKLY_WINDOW_SECONDS * 1000
+    const latestEndMs = Math.min(resetMs, nowMs)
+    const observedMs = parseTimestampMs(account.codex_quota?.last_refresh_at)
+    const rawEndMs = observedMs ?? latestEndMs
+    const endMs = Math.min(Math.max(rawEndMs, startMs), latestEndMs)
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
+      continue
+    }
+    windows.push({
+      key: 'weekly',
+      auth_type: 'oauth',
+      auth_index: authIndex,
+      start_time: new Date(startMs).toISOString(),
+      end_time: new Date(endMs).toISOString(),
+    })
+  }
+  return windows
+}
+
+function parseTimestampMs(value: string | undefined): number | undefined {
+  const parsed = value ? Date.parse(value) : Number.NaN
+  return Number.isFinite(parsed) ? parsed : undefined
+}
+
 export function codexCurrentAuthIndexSet(response: CodexStateResponse): Set<string> {
   const currentAuthIndexes = new Set<string>()
   const authIndexByID = new Map<string, string>()
@@ -266,12 +335,14 @@ export function codexCredentialStateFromAccount(account: CodexStateAccount, curr
   const computedScore = finiteNumber(account.codex_computed_score) ?? finiteNumber(account.codex_score_explanation?.computed_score_live)
   const manualAdjustment = finiteNumber(account.codex_manual_score_adjustment) ?? finiteNumber(account.codex_score_explanation?.manual_adjustment)
   const authIndex = account.auth_index?.trim()
+  const planType = codexAccountPlanType(account)
   return {
     score: computedScore ?? manualAdjustment,
     manualAdjustment,
     scoreReason: account.codex_score_reason ?? account.codex_last_selection_reason ?? account.codex_score_explanation?.disqualifier_reason,
     current: account.on_device === true || (authIndex ? currentAuthIndexes.has(authIndex) : false),
-    quota: codexQuotaToRows(account.codex_quota),
+    planType,
+    quota: codexQuotaToRows(account.codex_quota, planType),
     status: account.status?.trim(),
     statusMessage: account.status_message?.trim(),
     unavailable: account.unavailable === true,
@@ -308,13 +379,13 @@ function isCodexStateAccountLike(value: unknown): value is CodexStateAccount {
   return typeof value === 'object' && value !== null
 }
 
-export function codexQuotaToRows(quota: CodexQuotaState | undefined): UsageQuotaRow[] | undefined {
+export function codexQuotaToRows(quota: CodexQuotaState | undefined, planType?: string): UsageQuotaRow[] | undefined {
   if (!quota) {
     return undefined
   }
   const rows = [
-    codexQuotaWindowToRow('codex_quota.five_hour', '5h', quota.five_hour, 18_000),
-    codexQuotaWindowToRow('codex_quota.weekly', 'Weekly', quota.weekly, 604_800),
+    codexQuotaWindowToRow('codex_quota.five_hour', '5h', quota.five_hour, 18_000, planType),
+    codexQuotaWindowToRow('codex_quota.weekly', 'Weekly', quota.weekly, 604_800, planType),
   ].filter((row): row is UsageQuotaRow => Boolean(row))
   return rows.length > 0 ? rows : undefined
 }
@@ -323,7 +394,7 @@ function finiteNumber(value: number | undefined): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined
 }
 
-function codexQuotaWindowToRow(key: string, label: string, window: CodexQuotaState['five_hour'], seconds: number): UsageQuotaRow | undefined {
+function codexQuotaWindowToRow(key: string, label: string, window: CodexQuotaState['five_hour'], seconds: number, planType?: string): UsageQuotaRow | undefined {
   if (!window || !Number.isFinite(window.remaining) || !Number.isFinite(window.limit) || (window.limit ?? 0) <= 0) {
     return undefined
   }
@@ -341,7 +412,12 @@ function codexQuotaWindowToRow(key: string, label: string, window: CodexQuotaSta
     remainingFraction: remaining / limit,
     resetAt,
     window: { seconds },
+    planType,
   }
+}
+
+function codexAccountPlanType(account: CodexStateAccount): string | undefined {
+  return firstNonEmpty(account.plan_type, account.id_token?.plan_type, account.account_type)
 }
 
 function codexLastErrorReason(account: CodexStateAccount): string | undefined {
@@ -356,6 +432,16 @@ function codexLastErrorReason(account: CodexStateAccount): string | undefined {
   return detail || undefined
 }
 
+function firstNonEmpty(...values: Array<string | undefined>): string | undefined {
+  for (const value of values) {
+    const trimmed = value?.trim()
+    if (trimmed) {
+      return trimmed
+    }
+  }
+  return undefined
+}
+
 function isImpossibleFiveHourReset(resetAt: string | undefined): boolean {
   if (!resetAt) {
     return false
@@ -367,7 +453,7 @@ function isImpossibleFiveHourReset(resetAt: string | undefined): boolean {
   return resetMs - Date.now() > 6 * 60 * 60 * 1000
 }
 
-function codexQuotaResetAt(window: CodexQuotaState['five_hour']): string | undefined {
+function codexQuotaResetAt(window: CodexQuotaState['five_hour'], now = new Date()): string | undefined {
   if (!window) {
     return undefined
   }
@@ -380,7 +466,7 @@ function codexQuotaResetAt(window: CodexQuotaState['five_hour']): string | undef
   }
   const resetAfterSeconds = window.reset_after_seconds ?? window.resetAfterSeconds
   if (typeof resetAfterSeconds === 'number' && Number.isFinite(resetAfterSeconds) && resetAfterSeconds > 0) {
-    return new Date(Date.now() + resetAfterSeconds * 1000).toISOString()
+    return new Date(now.getTime() + resetAfterSeconds * 1000).toISOString()
   }
   return undefined
 }

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { appPath, fetchAnalysis, fetchCodexState, fetchCpaApiKeyOptions, fetchCpaApiKeys, fetchKeyOverview, fetchUsageOverview, fetchUsageQuotaCache, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchUsageIdentities, fetchUsageIdentitiesPage, fetchUsageQuotaRefreshTask, loginWithCPAAPIKey, logout, recalculateCodexState, refreshCodexState, refreshUsageQuotas, updateCodexManualScore, updateCpaApiKeyAlias } from './api';
+import { appPath, fetchAnalysis, fetchCodexState, fetchCpaApiKeyOptions, fetchCpaApiKeys, fetchKeyOverview, fetchUsageOverview, fetchUsageQuotaCache, fetchUsageWindowCosts, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchUsageIdentities, fetchUsageIdentitiesPage, fetchUsageQuotaRefreshTask, loginWithCPAAPIKey, logout, recalculateCodexState, refreshCodexState, refreshUsageQuotas, updateCodexManualScore, updateCpaApiKeyAlias } from './api';
 
 describe('fetchUsageEvents', () => {
   afterEach(() => {
@@ -358,6 +358,51 @@ describe('fetchUsageEvents', () => {
     expect(init).toMatchObject({ credentials: 'include', method: 'POST', signal });
     expect(init?.headers).toEqual({ 'Content-Type': 'application/json' });
     expect(init?.body).toBe(JSON.stringify({ auth_indexes: ['auth-1'] }));
+  });
+
+  it('posts usage window cost requests for Codex quota estimates', async () => {
+    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        windows: [{
+          key: 'weekly',
+          auth_type: 'oauth',
+          auth_index: 'codex-1',
+          start_time: '2026-05-18T00:00:00Z',
+          end_time: '2026-05-25T00:00:00Z',
+          total_cost: 3.85,
+          cost_available: true,
+          missing_models: [],
+        }],
+      }),
+    } as Response);
+    const signal = new AbortController().signal;
+
+    const response = await fetchUsageWindowCosts([{
+      key: 'weekly',
+      auth_type: 'oauth',
+      auth_index: 'codex-1',
+      start_time: '2026-05-18T00:00:00Z',
+      end_time: '2026-05-25T00:00:00Z',
+    }], signal);
+
+    const [url, init] = fetchMock.mock.calls[0];
+    const parsed = new URL(String(url), 'http://localhost');
+
+    expect(response.windows[0].total_cost).toBe(3.85);
+    expect(parsed.pathname).toBe('/api/v1/usage/window-costs');
+    expect(init).toMatchObject({ credentials: 'include', method: 'POST', signal });
+    expect(init?.headers).toEqual({ 'Content-Type': 'application/json' });
+    expect(init?.body).toBe(JSON.stringify({
+      windows: [{
+        key: 'weekly',
+        auth_type: 'oauth',
+        auth_index: 'codex-1',
+        start_time: '2026-05-18T00:00:00Z',
+        end_time: '2026-05-25T00:00:00Z',
+      }],
+    }));
   });
 
   it('creates quota refresh tasks for current page auth indexes', async () => {

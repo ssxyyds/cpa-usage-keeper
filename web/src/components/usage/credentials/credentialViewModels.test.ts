@@ -170,7 +170,7 @@ describe('credentialViewModels', () => {
     expect(rows[0].secondaryQuota?.percent).toBe(40)
     expect(rows[0].secondaryQuota?.percentKind).toBe('used')
     expect(rows[0].secondaryQuota?.barPercent).toBe(60)
-    expect(rows[0].quotaTotalAmount).toBe(100)
+    expect(rows[0].quotaTotalAmount).toBeUndefined()
     expect(rows[0].extraQuota.map((quota) => quota.label)).toEqual(['Code Assist Credit'])
   })
 
@@ -303,6 +303,96 @@ describe('credentialViewModels', () => {
     ]))
 
     expect(rows[0].primaryQuota?.barPercent).toBe(80)
+  })
+
+  it('estimates Codex quota amount from weekly used ratio and window cost', () => {
+    const rows = buildAuthFileCredentialRows([
+      identity({ identity: 'codex-auth', provider: 'codex', type: 'codex', plan_type: 'plus' }),
+    ], new Map(), new Map(), new Map([
+      ['codex-auth', {
+        quota: [
+          { key: 'codex_quota.weekly', label: 'Weekly', remaining: 80, limit: 100, remainingFraction: 0.8, window: { seconds: 604800 } },
+        ],
+        usageWindowCosts: [
+          {
+            key: 'weekly',
+            auth_type: 'oauth',
+            auth_index: 'codex-auth',
+            start_time: '2026-05-18T00:00:00Z',
+            end_time: '2026-05-25T00:00:00Z',
+            total_cost: 4,
+            cost_available: true,
+            missing_models: [],
+          },
+        ],
+      }],
+    ]))
+
+    expect(rows[0].secondaryQuota?.barPercent).toBe(80)
+    expect(rows[0].quotaTotalAmount).toBeCloseTo(20)
+  })
+
+  it('estimates quota amount when CPA Codex state is present even if identity labels are generic', () => {
+    const rows = buildAuthFileCredentialRows([
+      identity({ identity: 'codex-auth', provider: 'openai', type: 'oauth' }),
+    ], new Map(), new Map(), new Map([
+      ['codex-auth', {
+        quota: [
+          { key: 'codex_quota.weekly', label: 'Weekly', remaining: 80, limit: 100, remainingFraction: 0.8, window: { seconds: 604800 } },
+        ],
+        usageWindowCosts: [
+          { key: 'weekly', auth_type: 'oauth', auth_index: 'codex-auth', start_time: '2026-05-18T00:00:00Z', end_time: '2026-05-25T00:00:00Z', total_cost: 4, cost_available: true, missing_models: [] },
+        ],
+      }],
+    ]))
+
+    expect(rows[0].quotaTotalAmount).toBeCloseTo(20)
+  })
+
+  it('does not estimate Codex quota amount when weekly is unused or cost is unavailable', () => {
+    const rows = buildAuthFileCredentialRows([
+      identity({ identity: 'codex-unused', provider: 'codex', type: 'codex', plan_type: 'pro' }),
+      identity({ identity: 'codex-missing-price', provider: 'codex', type: 'codex', plan_type: 'team' }),
+    ], new Map(), new Map(), new Map([
+      ['codex-unused', {
+        quota: [
+          { key: 'codex_quota.weekly', label: 'Weekly', remaining: 100, limit: 100, remainingFraction: 1, window: { seconds: 604800 } },
+        ],
+        usageWindowCosts: [
+          { key: 'weekly', auth_type: 'oauth', auth_index: 'codex-unused', start_time: '2026-05-18T00:00:00Z', end_time: '2026-05-25T00:00:00Z', total_cost: 1, cost_available: true, missing_models: [] },
+        ],
+      }],
+      ['codex-missing-price', {
+        quota: [
+          { key: 'codex_quota.weekly', label: 'Weekly', remaining: 80, limit: 100, remainingFraction: 0.8, window: { seconds: 604800 } },
+        ],
+        usageWindowCosts: [
+          { key: 'weekly', auth_type: 'oauth', auth_index: 'codex-missing-price', start_time: '2026-05-18T00:00:00Z', end_time: '2026-05-25T00:00:00Z', total_cost: 4, cost_available: false, missing_models: ['unpriced-model'] },
+        ],
+      }],
+    ]))
+
+    expect(rows.map((row) => row.quotaTotalAmount)).toEqual([undefined, undefined])
+  })
+
+  it('does not use Codex plan type mapping without same-window cost data', () => {
+    const rows = buildAuthFileCredentialRows([
+      identity({ identity: 'codex-plus', provider: 'codex', type: 'codex', plan_type: 'plus' }),
+      identity({ identity: 'codex-pro', provider: 'codex', type: 'codex', plan_type: 'chatgpt-pro-monthly' }),
+    ], new Map(), new Map(), new Map([
+      ['codex-plus', {
+        quota: [
+          { key: 'codex_quota.weekly', label: 'Weekly', remaining: 80, limit: 100, remainingFraction: 0.8, window: { seconds: 604800 } },
+        ],
+      }],
+      ['codex-pro', {
+        quota: [
+          { key: 'codex_quota.weekly', label: 'Weekly', remaining: 50, limit: 100, remainingFraction: 0.5, window: { seconds: 604800 } },
+        ],
+      }],
+    ]))
+
+    expect(rows.map((row) => row.quotaTotalAmount)).toEqual([undefined, undefined])
   })
 
   it('uses Claude token semantics for auth file cache rate', () => {

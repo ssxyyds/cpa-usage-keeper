@@ -41,7 +41,13 @@ describe('Credential section styles', () => {
   })
 
   it('keeps Total Requests fixed and wraps the breakdown only when it overflows', () => {
-    expect(credentialStyles).toMatch(/\.credentialMetricGroup\s*\{[\s\S]*?grid-template-columns:\s*repeat\(5, minmax\(88px, 1fr\)\);/)
+    expect(credentialStyles).toMatch(/\.credentialMetricGroup\s*\{[\s\S]*?grid-template-columns:\s*max-content max-content max-content max-content max-content;/)
+    expect(credentialStyles).toMatch(/\.credentialMetricGroup\s*\{[\s\S]*?justify-content:\s*start;/)
+    expect(authFileSectionSource).toContain('credentialCompactMetricPill')
+    expect(authFileSectionSource).toContain('credentialTokenMetricPill')
+    expect(authFileSectionSource).toContain('credentialTokenMetric')
+    expect(credentialStyles).toMatch(/\.credentialCompactMetricPill\s*\{[\s\S]*?width:\s*96px;/)
+    expect(credentialStyles).toMatch(/\.credentialTokenMetricPill\s*\{[\s\S]*?width:\s*120px;/)
     expect(credentialStyles).toMatch(/\.credentialRequestMetric\s*\{[\s\S]*?align-items:\s*baseline;/)
     expect(credentialStyles).toMatch(/\.credentialRequestMetric\s*\{[\s\S]*?flex-wrap:\s*wrap;/)
     expect(credentialStyles).toMatch(/\.credentialRequestMetric\s*\{[\s\S]*?white-space:\s*normal;/)
@@ -49,6 +55,8 @@ describe('Credential section styles', () => {
     expect(credentialStyles).toMatch(/\.credentialRequestBreakdown\s*\{[\s\S]*?white-space:\s*nowrap;/)
     expect(credentialStyles).not.toMatch(/\.credentialRequestBreakdown\s*\{[\s\S]*?flex-basis:\s*100%;/)
     expect(credentialStyles).toMatch(/\.credentialRequestBreakdown\s*\{[\s\S]*?line-height:\s*1\.2;/)
+    expect(credentialStyles).toMatch(/\.credentialTokenMetric\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, max-content\) auto;/)
+    expect(credentialStyles).toMatch(/\.credentialTokenMetric\s*\{[\s\S]*?white-space:\s*nowrap;/)
   })
 
   it('keeps Codex score readonly by default inside Auth Files metrics', () => {

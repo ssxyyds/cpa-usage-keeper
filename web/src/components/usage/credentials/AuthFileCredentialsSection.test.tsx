@@ -11,7 +11,7 @@ vi.mock('react-i18next', () => ({
 }))
 
 describe('AuthFileCredentialsSection', () => {
-  it('shows token cost quota amount and unavailable reason for Codex auth files', () => {
+  it('shows token cost estimated quota amount and unavailable reason for Codex auth files', () => {
     const row = {
       identity: {
         id: '1',
@@ -54,7 +54,7 @@ describe('AuthFileCredentialsSection', () => {
       codexStatus: 'error',
       codexUnavailable: true,
       codexUnavailableReason: '401 unauthorized',
-      quotaTotalAmount: 100,
+      quotaTotalAmount: 20,
       extraQuota: [],
     } as AuthFileCredentialRow
 
@@ -84,7 +84,7 @@ describe('AuthFileCredentialsSection', () => {
 
     expect(html).toContain('$3.85')
     expect(html).toContain('usage_stats.credentials_quota_amount')
-    expect(html).toContain('$100.00')
+    expect(html).toContain('≈US$20.00')
     expect(html).toContain('401 unauthorized')
   })
 

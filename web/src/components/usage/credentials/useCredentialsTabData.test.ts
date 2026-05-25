@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { codexCredentialStateFromAccount, codexCurrentAuthIndexSet, codexQuotaToRows, mergeCodexManualScoreUpdate, quotaRefreshDisplayError } from './useCredentialsTabData'
+import { buildCodexWeeklyUsageWindowRequests, codexCredentialStateFromAccount, codexCurrentAuthIndexSet, codexQuotaToRows, mergeCodexManualScoreUpdate, quotaRefreshDisplayError } from './useCredentialsTabData'
 
 describe('quotaRefreshDisplayError', () => {
   it('turns refresh rejection codes into friendly messages', () => {
@@ -91,6 +91,48 @@ describe('codexQuotaToRows', () => {
   })
 })
 
+describe('buildCodexWeeklyUsageWindowRequests', () => {
+  it('uses weekly reset minus seven days and quota last refresh as the cost window', () => {
+    const windows = buildCodexWeeklyUsageWindowRequests([
+      {
+        auth_index: 'codex-1',
+        codex_quota: {
+          last_refresh_at: '2026-05-24T12:00:00Z',
+          weekly: {
+            remaining: 80,
+            limit: 100,
+            reset_at: '2026-05-25T00:00:00Z',
+          },
+        },
+      },
+    ], new Date('2026-05-24T13:00:00Z'))
+
+    expect(windows).toEqual([{
+      key: 'weekly',
+      auth_type: 'oauth',
+      auth_index: 'codex-1',
+      start_time: '2026-05-18T00:00:00.000Z',
+      end_time: '2026-05-24T12:00:00.000Z',
+    }])
+  })
+
+  it('skips Codex weekly cost windows when reset time is unavailable', () => {
+    const windows = buildCodexWeeklyUsageWindowRequests([
+      {
+        auth_index: 'codex-1',
+        codex_quota: {
+          weekly: {
+            remaining: 80,
+            limit: 100,
+          },
+        },
+      },
+    ], new Date('2026-05-24T13:00:00Z'))
+
+    expect(windows).toEqual([])
+  })
+})
+
 describe('codexCredentialStateFromAccount', () => {
   it('uses manual adjustment as the visible score fallback when CPA cannot compute a final score yet', () => {
     const state = codexCredentialStateFromAccount({
@@ -121,6 +163,22 @@ describe('codexCredentialStateFromAccount', () => {
 
     expect(state.score).toBe(12.5)
     expect(state.manualAdjustment).toBe(99)
+  })
+
+  it('keeps CPA plan type for Codex account badge display', () => {
+    const state = codexCredentialStateFromAccount({
+      auth_index: 'codex-1',
+      plan_type: 'free',
+      codex_quota: {
+        weekly: {
+          remaining: 90,
+          limit: 100,
+        },
+      },
+    }, new Set())
+
+    expect(state.planType).toBe('free')
+    expect(state.quota?.[0].planType).toBe('free')
   })
 
   it('keeps CPA unavailable and refresh error reasons for row status labels', () => {

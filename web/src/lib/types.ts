@@ -296,6 +296,29 @@ export interface UsageQuotaRefreshResponse {
   limit: number
 }
 
+export interface UsageWindowCostRequest {
+  key: string
+  auth_type: string
+  auth_index: string
+  start_time: string
+  end_time: string
+}
+
+export interface UsageWindowCostRecord extends UsageWindowCostRequest {
+  request_count?: number
+  input_tokens?: number
+  output_tokens?: number
+  cached_tokens?: number
+  total_tokens?: number
+  total_cost: number
+  cost_available: boolean
+  missing_models: string[]
+}
+
+export interface UsageWindowCostsResponse {
+  windows: UsageWindowCostRecord[]
+}
+
 export interface CodexQuotaWindowState {
   remaining?: number
   limit?: number

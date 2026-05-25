@@ -52,6 +52,10 @@ func (s *usageEventsStub) GetAnalysis(context.Context, servicedto.UsageFilter) (
 	return nil, s.err
 }
 
+func (s *usageEventsStub) AggregateUsageWindowCosts(context.Context, []servicedto.UsageWindowCostRequest) ([]servicedto.UsageWindowCostRecord, error) {
+	return nil, s.err
+}
+
 func TestUsageEventsReturnsFilteredRows(t *testing.T) {
 	previousLocal := time.Local
 	location, err := time.LoadLocation("Asia/Shanghai")

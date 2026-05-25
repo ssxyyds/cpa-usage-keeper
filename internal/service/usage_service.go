@@ -13,4 +13,5 @@ type UsageProvider interface {
 	ListUsageEvents(context.Context, servicedto.UsageFilter) (*servicedto.UsageEventsPage, error)
 	ListUsageEventFilterOptions(context.Context, servicedto.UsageFilter) (*servicedto.UsageEventFilterOptions, error)
 	GetAnalysis(context.Context, servicedto.UsageFilter) (*servicedto.AnalysisSnapshot, error)
+	AggregateUsageWindowCosts(context.Context, []servicedto.UsageWindowCostRequest) ([]servicedto.UsageWindowCostRecord, error)
 }

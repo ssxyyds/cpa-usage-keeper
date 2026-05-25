@@ -262,3 +262,44 @@ func (s *usageService) ListUsageEventFilterOptions(_ context.Context, filter ser
 	}
 	return &servicedto.UsageEventFilterOptions{Models: options.Models}, nil
 }
+
+func (s *usageService) AggregateUsageWindowCosts(ctx context.Context, requests []servicedto.UsageWindowCostRequest) ([]servicedto.UsageWindowCostRecord, error) {
+	repositoryRequests := make([]repodto.UsageWindowCostRequest, 0, len(requests))
+	for _, request := range requests {
+		repositoryRequests = append(repositoryRequests, repodto.UsageWindowCostRequest{
+			Key:       request.Key,
+			AuthType:  request.AuthType,
+			AuthIndex: request.AuthIndex,
+			StartTime: request.StartTime,
+			EndTime:   request.EndTime,
+		})
+	}
+	recordsByKey, err := repository.AggregateUsageWindowCosts(ctx, s.db, repositoryRequests)
+	if err != nil {
+		return nil, err
+	}
+	records := make([]servicedto.UsageWindowCostRecord, 0, len(repositoryRequests))
+	for _, request := range repositoryRequests {
+		record := recordsByKey[usageWindowCostServiceKey(request.Key, request.AuthType, request.AuthIndex)]
+		records = append(records, servicedto.UsageWindowCostRecord{
+			Key:           record.Key,
+			AuthType:      record.AuthType,
+			AuthIndex:     record.AuthIndex,
+			StartTime:     record.StartTime,
+			EndTime:       record.EndTime,
+			RequestCount:  record.RequestCount,
+			InputTokens:   record.InputTokens,
+			OutputTokens:  record.OutputTokens,
+			CachedTokens:  record.CachedTokens,
+			TotalTokens:   record.TotalTokens,
+			TotalCost:     record.TotalCost,
+			CostAvailable: record.CostAvailable,
+			MissingModels: record.MissingModels,
+		})
+	}
+	return records, nil
+}
+
+func usageWindowCostServiceKey(key, authType, authIndex string) string {
+	return strings.TrimSpace(key) + "\x00" + strings.ToLower(strings.TrimSpace(authType)) + "\x00" + strings.TrimSpace(authIndex)
+}

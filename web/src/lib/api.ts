@@ -1,4 +1,4 @@
-import { type AnalysisResponse, type AuthSessionResponse, type CodexStateResponse, type CpaApiKeyOptionsResponse, type CpaApiKeySettingsItem, type CpaApiKeysResponse, type KeyOverviewTimeRange, type PricingEntry, type PricingResponse, type StatusResponse, type UpdateCheckResponse, type UsageEventModelFilterOptionsResponse, type UsageEventSourceFilterOptionsResponse, type UsedModelsResponse, type UsageIdentitiesPageResponse, type UsageIdentitiesResponse, type UsageEventsResponse, type UsageIdentityAuthType, type UsageOverviewResponse, type UsageQuotaCacheResponse, type UsageQuotaRefreshResponse, type UsageQuotaRefreshTaskResponse } from './types'
+import { type AnalysisResponse, type AuthSessionResponse, type CodexStateResponse, type CpaApiKeyOptionsResponse, type CpaApiKeySettingsItem, type CpaApiKeysResponse, type KeyOverviewTimeRange, type PricingEntry, type PricingResponse, type StatusResponse, type UpdateCheckResponse, type UsageEventModelFilterOptionsResponse, type UsageEventSourceFilterOptionsResponse, type UsedModelsResponse, type UsageIdentitiesPageResponse, type UsageIdentitiesResponse, type UsageEventsResponse, type UsageIdentityAuthType, type UsageOverviewResponse, type UsageQuotaCacheResponse, type UsageQuotaRefreshResponse, type UsageQuotaRefreshTaskResponse, type UsageWindowCostRequest, type UsageWindowCostsResponse } from './types'
 
 export class ApiError extends Error {
   status: number
@@ -249,6 +249,21 @@ export async function fetchUsageQuotaCache(authIndexes: string[], signal?: Abort
   })
   if (!response.ok) {
     await parseApiError(response, `Failed to load cached usage quotas: ${response.status}`)
+  }
+  return response.json()
+}
+
+export async function fetchUsageWindowCosts(windows: UsageWindowCostRequest[], signal?: AbortSignal): Promise<UsageWindowCostsResponse> {
+  const response = await apiFetch(apiPath('/usage/window-costs'), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ windows }),
+    signal,
+  })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to load usage window costs: ${response.status}`)
   }
   return response.json()
 }
