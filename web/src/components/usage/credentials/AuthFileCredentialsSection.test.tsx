@@ -11,6 +11,83 @@ vi.mock('react-i18next', () => ({
 }))
 
 describe('AuthFileCredentialsSection', () => {
+  it('shows token cost quota amount and unavailable reason for Codex auth files', () => {
+    const row = {
+      identity: {
+        id: '1',
+        name: 'Codex Account',
+        auth_type: 1,
+        auth_type_name: 'auth file',
+        identity: 'codex-1',
+        type: 'codex',
+        provider: 'codex',
+        total_requests: 0,
+        success_count: 0,
+        failure_count: 0,
+        input_tokens: 0,
+        output_tokens: 0,
+        reasoning_tokens: 0,
+        cached_tokens: 0,
+        total_tokens: 1_200_000,
+        total_cost: 3.85,
+        cost_available: true,
+        last_aggregated_usage_event_id: '0',
+        is_deleted: false,
+        created_at: '2026-05-10T00:00:00Z',
+        updated_at: '2026-05-10T00:00:00Z',
+      },
+      displayName: 'Codex Account',
+      maskedIdentity: 'codex-1',
+      providerLabel: 'codex',
+      typeLabel: 'codex',
+      authTypeLabel: 'auth file',
+      totalRequests: 0,
+      successCount: 0,
+      failureCount: 0,
+      successRate: null,
+      totalTokens: 1_200_000,
+      totalCost: 3.85,
+      costAvailable: true,
+      cacheRate: null,
+      quota: [],
+      quotaLoading: false,
+      codexStatus: 'error',
+      codexUnavailable: true,
+      codexUnavailableReason: '401 unauthorized',
+      quotaTotalAmount: 100,
+      extraQuota: [],
+    } as AuthFileCredentialRow
+
+    const html = renderToStaticMarkup(
+      <AuthFileCredentialsSection
+        rows={[row]}
+        total={1}
+        page={1}
+        totalPages={1}
+        pageSize={10}
+        activeOnly={false}
+        search=""
+        sort="priority"
+        loading={false}
+        quotaRefreshing={false}
+        quotaRefreshError=""
+        onPageChange={() => undefined}
+        onPageSizeChange={() => undefined}
+        onActiveOnlyChange={() => undefined}
+        onSearchChange={() => undefined}
+        onSortChange={() => undefined}
+        onRefreshQuota={async () => undefined}
+        onRefreshQuotaForAuthIndex={async () => undefined}
+        onUpdateCodexManualScore={async () => undefined}
+      />,
+    )
+
+    expect(html).toContain('$3.85')
+    expect(html).toContain('usage_stats.credentials_quota_amount')
+    expect(html).toContain('$100.00')
+    expect(html).toContain('401 unauthorized')
+  })
+
   it('shows Codex final score without expanding manual adjustment controls by default', () => {
     const row = {
       identity: {

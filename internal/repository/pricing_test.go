@@ -27,8 +27,14 @@ func TestListUsedModelsReturnsDistinctSortedModels(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list used models: %v", err)
 	}
-	if len(modelsList) != 2 || modelsList[0] != "claude-haiku" || modelsList[1] != "claude-sonnet" {
+	wantModels := []string{"claude-haiku", "claude-sonnet", "gpt-5.4", "gpt-5.4-mini", "gpt-5.5"}
+	if len(modelsList) != len(wantModels) {
 		t.Fatalf("unexpected models: %#v", modelsList)
+	}
+	for i, want := range wantModels {
+		if modelsList[i] != want {
+			t.Fatalf("unexpected models: %#v", modelsList)
+		}
 	}
 }
 
@@ -65,7 +71,8 @@ func TestUpsertModelPriceSettingCreatesAndUpdatesRow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list pricing settings: %v", err)
 	}
-	if len(settings) != 1 || settings[0].CompletionPricePer1M != 16 {
+	byModel := pricingSettingsByModel(settings)
+	if len(settings) != 4 || byModel["claude-sonnet"].CompletionPricePer1M != 16 {
 		t.Fatalf("unexpected settings: %#v", settings)
 	}
 }
@@ -78,10 +85,7 @@ func TestListModelPriceSettingsIncludesCodexDefaults(t *testing.T) {
 		t.Fatalf("list pricing settings: %v", err)
 	}
 
-	byModel := make(map[string]entities.ModelPriceSetting, len(settings))
-	for _, setting := range settings {
-		byModel[setting.Model] = setting
-	}
+	byModel := pricingSettingsByModel(settings)
 	if byModel["gpt-5.5"].PromptPricePer1M != 5 || byModel["gpt-5.5"].CompletionPricePer1M != 30 || byModel["gpt-5.5"].CachePricePer1M != 0.5 {
 		t.Fatalf("unexpected gpt-5.5 default pricing: %#v", byModel["gpt-5.5"])
 	}
@@ -91,6 +95,14 @@ func TestListModelPriceSettingsIncludesCodexDefaults(t *testing.T) {
 	if byModel["gpt-5.4-mini"].PromptPricePer1M != 0.75 || byModel["gpt-5.4-mini"].CompletionPricePer1M != 4.5 || byModel["gpt-5.4-mini"].CachePricePer1M != 0.075 {
 		t.Fatalf("unexpected gpt-5.4-mini default pricing: %#v", byModel["gpt-5.4-mini"])
 	}
+}
+
+func pricingSettingsByModel(settings []entities.ModelPriceSetting) map[string]entities.ModelPriceSetting {
+	byModel := make(map[string]entities.ModelPriceSetting, len(settings))
+	for _, setting := range settings {
+		byModel[setting.Model] = setting
+	}
+	return byModel
 }
 
 func openPricingTestDatabase(t *testing.T) *gorm.DB {

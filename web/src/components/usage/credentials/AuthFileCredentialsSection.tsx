@@ -96,7 +96,12 @@ export function AuthFileCredentialsSection({ rows, total, page, totalPages, page
               <>
                 {row.totalRequests > 0 && <MetricPill label={t('usage_stats.total_requests')} value={<RequestMetric total={row.totalRequests} success={row.successCount} failure={row.failureCount} />} />}
                 {row.successRate !== null && <MetricPill label={t('usage_stats.success_rate')} value={<TonePercent value={row.successRate} tone={successRateTone(row.successRate)} />} />}
-                {row.totalTokens > 0 && <MetricPill label={t('usage_stats.total_tokens')} value={formatCredentialNumber(row.totalTokens)} />}
+                {row.totalTokens > 0 && (
+                  <MetricPill
+                    label={t('usage_stats.total_tokens')}
+                    value={<CredentialTokenMetric row={row} />}
+                  />
+                )}
                 {row.cacheRate !== null && <MetricPill label={t('usage_stats.cache_rate')} value={<TonePercent value={row.cacheRate} tone={cacheRateTone(row.cacheRate)} />} />}
                 {(row.codexScore !== undefined || isCodexCredentialRow(row)) && (
                   <MetricPill
@@ -228,6 +233,20 @@ function isRowRefreshing(row: AuthFileCredentialRow): boolean {
   return row.refreshStatus === 'queued' || row.refreshStatus === 'running'
 }
 
+function CredentialTokenMetric({ row }: { row: AuthFileCredentialRow }) {
+  const { t } = useTranslation()
+  return (
+    <span className={styles.credentialMetricStack}>
+      <strong>{formatCredentialNumber(row.totalTokens)}</strong>
+      {row.costAvailable ? (
+        <span>{formatCredentialCurrency(row.totalCost)}</span>
+      ) : (
+        <span>{t('usage_stats.cost_need_price')}</span>
+      )}
+    </span>
+  )
+}
+
 function formatCodexScore(value: number | undefined): string {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
     return '-'
@@ -241,6 +260,7 @@ function CredentialPlanBadge({ children, tone = 'neutral' }: { children: string;
 
 function AuthFileQuotaPanel({ row }: { row: AuthFileCredentialRow }) {
   const { t } = useTranslation()
+  const statusReason = codexStatusReason(row)
 
   // 限额区域按加载、错误、刷新中、无缓存、可展示数据的顺序降级。
   if (row.quotaLoading) {
@@ -252,17 +272,26 @@ function AuthFileQuotaPanel({ row }: { row: AuthFileCredentialRow }) {
   if (row.refreshStatus === 'queued' || row.refreshStatus === 'running') {
     return <div className={styles.credentialQuotaRefreshStatus}>{t(`usage_stats.credentials_refresh_status_${row.refreshStatus}`)}</div>
   }
-  if (!row.primaryQuota && !row.secondaryQuota && row.extraQuota.length === 0) {
-    return <div className={styles.credentialQuotaState}>{t('usage_stats.credentials_quota_unavailable')}</div>
+  if (!row.primaryQuota && !row.secondaryQuota && row.extraQuota.length === 0 && row.quotaTotalAmount === undefined) {
+    return <div className={statusReason ? styles.credentialQuotaStateError : styles.credentialQuotaState}>{statusReason || t('usage_stats.credentials_quota_unavailable')}</div>
   }
 
   return (
     <div className={styles.credentialQuotaPanel}>
-      <div className={styles.credentialQuotaBars}>
-        {/* 5h/Weekly 使用固定槽位，避免只有 Weekly 时滑到左侧造成误读。 */}
-        <QuotaSlot slot="five-hour" label="5h" quota={row.primaryQuota} />
-        <QuotaSlot slot="weekly" label="Weekly" quota={row.secondaryQuota} />
-      </div>
+      {statusReason && <div className={styles.credentialQuotaNotice}>{statusReason}</div>}
+      {row.quotaTotalAmount !== undefined && (
+        <div className={styles.credentialQuotaAmount}>
+          <span>{t('usage_stats.credentials_quota_amount')}</span>
+          <strong>{formatCredentialCurrency(row.quotaTotalAmount)}</strong>
+        </div>
+      )}
+      {(row.primaryQuota || row.secondaryQuota) && (
+        <div className={styles.credentialQuotaBars}>
+          {/* 5h/Weekly 使用固定槽位，避免只有 Weekly 时滑到左侧造成误读。 */}
+          <QuotaSlot slot="five-hour" label="5h" quota={row.primaryQuota} />
+          <QuotaSlot slot="weekly" label="Weekly" quota={row.secondaryQuota} />
+        </div>
+      )}
       {row.extraQuota.length > 0 && (
         <div className={styles.credentialQuotaChips}>
           {row.extraQuota.map((quota) => (
@@ -275,6 +304,19 @@ function AuthFileQuotaPanel({ row }: { row: AuthFileCredentialRow }) {
       )}
     </div>
   )
+}
+
+function codexStatusReason(row: AuthFileCredentialRow): string {
+  if (row.codexUnavailableReason) {
+    return row.codexUnavailableReason
+  }
+  if (row.codexStatusMessage && (row.codexUnavailable || row.codexStatus === 'error')) {
+    return row.codexStatusMessage
+  }
+  if (row.codexQuotaRefreshStatus === 'error' && row.codexQuotaRefreshError) {
+    return row.codexQuotaRefreshError
+  }
+  return ''
 }
 
 function QuotaSlot({ slot, label, quota }: { slot: 'five-hour' | 'weekly'; label: string; quota?: DisplayQuota }) {
@@ -347,4 +389,8 @@ function QuotaBar({ quota, slot }: { quota: DisplayQuota; slot?: 'five-hour' | '
       </div>
     </div>
   )
+}
+
+function formatCredentialCurrency(value: number): string {
+  return new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value)
 }

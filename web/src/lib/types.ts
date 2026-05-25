@@ -211,6 +211,8 @@ export interface UsageIdentity {
   reasoning_tokens: number
   cached_tokens: number
   total_tokens: number
+  total_cost?: number
+  cost_available?: boolean
   last_aggregated_usage_event_id: string
   first_used_at?: string
   last_used_at?: string
@@ -308,6 +310,7 @@ export interface CodexQuotaState {
   weekly?: CodexQuotaWindowState
   last_refresh_at?: string
   refresh_status?: string
+  refresh_error?: string
   probe_status?: string
 }
 
@@ -324,6 +327,13 @@ export interface CodexScoreExplanation {
   formula_label?: string
 }
 
+export interface CodexStateLastError {
+  code?: string
+  message?: string
+  retryable?: boolean
+  http_status?: number
+}
+
 export interface CodexStateAccount {
   id?: string
   auth_index?: string
@@ -337,8 +347,11 @@ export interface CodexStateAccount {
   }
   provider?: string
   status?: string
+  status_message?: string
   disabled?: boolean
   unavailable?: boolean
+  unavailable_reason?: string
+  last_error?: CodexStateLastError
   on_device?: boolean
   codex_quota?: CodexQuotaState
   codex_score_explanation?: CodexScoreExplanation

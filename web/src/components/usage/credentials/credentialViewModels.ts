@@ -26,6 +26,18 @@ export interface CodexCredentialState {
   scoreReason?: string
   current?: boolean
   quota?: UsageQuotaRow[]
+  status?: string
+  statusMessage?: string
+  unavailable?: boolean
+  unavailableReason?: string
+  lastError?: {
+    code?: string
+    message?: string
+    retryable?: boolean
+    http_status?: number
+  }
+  quotaRefreshStatus?: string
+  quotaRefreshError?: string
 }
 
 export interface AuthFileCredentialRow {
@@ -43,6 +55,8 @@ export interface AuthFileCredentialRow {
   failureCount: number
   successRate: number | null
   totalTokens: number
+  totalCost: number
+  costAvailable: boolean
   cacheRate: number | null
   quota: UsageQuotaRow[]
   quotaLoading: boolean
@@ -52,10 +66,17 @@ export interface AuthFileCredentialRow {
   codexScore?: number
   codexManualScoreAdjustment?: number
   codexScoreReason?: string
+  codexStatus?: string
+  codexStatusMessage?: string
+  codexUnavailable?: boolean
+  codexUnavailableReason?: string
+  codexQuotaRefreshStatus?: string
+  codexQuotaRefreshError?: string
   isCodexCurrent?: boolean
   primaryQuota?: DisplayQuota
   secondaryQuota?: DisplayQuota
   extraQuota: DisplayQuota[]
+  quotaTotalAmount?: number
 }
 
 export interface AiProviderCredentialRow {
@@ -153,6 +174,8 @@ export function buildAuthFileCredentialRows(
       failureCount: safeNumber(identity.failure_count),
       successRate: successRate(identity),
       totalTokens: safeNumber(identity.total_tokens),
+      totalCost: finiteNumber(identity.total_cost) ?? 0,
+      costAvailable: identity.cost_available === true,
       cacheRate: cacheRate(identity),
       quota,
       quotaLoading: state?.quotaLoading ?? false,
@@ -162,10 +185,17 @@ export function buildAuthFileCredentialRows(
       codexScore: codexState?.score,
       codexManualScoreAdjustment: codexState?.manualAdjustment,
       codexScoreReason: codexState?.scoreReason,
+      codexStatus: codexState?.status,
+      codexStatusMessage: codexState?.statusMessage,
+      codexUnavailable: codexState?.unavailable === true,
+      codexUnavailableReason: codexState?.unavailableReason,
+      codexQuotaRefreshStatus: codexState?.quotaRefreshStatus,
+      codexQuotaRefreshError: codexState?.quotaRefreshError,
       isCodexCurrent: codexState?.current === true,
       primaryQuota,
       secondaryQuota,
       extraQuota,
+      quotaTotalAmount: quotaTotalAmount(displayQuotas),
     }
   })
 }
@@ -341,6 +371,21 @@ function isSecondaryQuota(quota: DisplayQuota): boolean {
   }
   const haystack = `${quota.key} ${quota.label}`.toLowerCase()
   return haystack.includes('weekly') || haystack.includes('seven_day')
+}
+
+function quotaTotalAmount(quotas: DisplayQuota[]): number | undefined {
+  const weekly = quotas.find(isSecondaryQuota)
+  if (weekly?.limit !== undefined) {
+    return weekly.limit
+  }
+  let maxLimit: number | undefined
+  for (const quota of quotas) {
+    if (quota.limit === undefined) {
+      continue
+    }
+    maxLimit = maxLimit === undefined ? quota.limit : Math.max(maxLimit, quota.limit)
+  }
+  return maxLimit
 }
 
 function credentialDisplayName(identity: UsageIdentity): string {

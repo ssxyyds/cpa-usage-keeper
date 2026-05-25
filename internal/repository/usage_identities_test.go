@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"cpa-usage-keeper/internal/entities"
+	"cpa-usage-keeper/internal/repository/dto"
 	"gorm.io/gorm"
 )
 
@@ -822,6 +823,50 @@ func TestUsageIdentityListActivePageOrdersByTotalTokensDesc(t *testing.T) {
 	}
 	if got := []string{items[0].Identity, items[1].Identity, items[2].Identity}; !reflect.DeepEqual(got, []string{"high", "middle", "low"}) {
 		t.Fatalf("expected page sorted by total tokens desc, got %v", got)
+	}
+}
+
+func TestUsageIdentityListActivePageIncludesCurrentPricingCost(t *testing.T) {
+	db := openTestDatabase(t)
+	now := time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC)
+	authType := entities.UsageIdentityAuthTypeAuthFile
+	if _, err := UpsertModelPriceSetting(db, dto.ModelPriceSettingInput{
+		Model:                "priced-model",
+		PromptPricePer1M:     2,
+		CompletionPricePer1M: 10,
+		CachePricePer1M:      0.5,
+	}); err != nil {
+		t.Fatalf("UpsertModelPriceSetting returned error: %v", err)
+	}
+	if err := db.Create(&[]entities.UsageIdentity{
+		{Identity: "priced-auth", Name: "Priced", AuthType: authType, AuthTypeName: "oauth", Type: "codex", Provider: "codex", CreatedAt: now, UpdatedAt: now},
+		{Identity: "unpriced-auth", Name: "Unpriced", AuthType: authType, AuthTypeName: "oauth", Type: "codex", Provider: "codex", CreatedAt: now, UpdatedAt: now},
+	}).Error; err != nil {
+		t.Fatalf("seed usage identities: %v", err)
+	}
+	if err := db.Create(&[]entities.UsageEvent{
+		{EventKey: "priced", APIGroupKey: "g1", AuthType: "oauth", AuthIndex: "priced-auth", Model: "priced-model", RequestID: "r1", Timestamp: now, InputTokens: 1_000_000, CachedTokens: 100_000, OutputTokens: 200_000, TotalTokens: 1_200_000},
+		{EventKey: "unpriced", APIGroupKey: "g1", AuthType: "oauth", AuthIndex: "unpriced-auth", Model: "unpriced-model", RequestID: "r2", Timestamp: now, InputTokens: 1_000, TotalTokens: 1_000},
+	}).Error; err != nil {
+		t.Fatalf("seed usage events: %v", err)
+	}
+
+	items, _, err := ListActiveUsageIdentitiesPage(context.Background(), db, ListUsageIdentitiesPageRequest{AuthType: &authType, Sort: UsageIdentityPageSortTotalTokens, Page: 1, PageSize: 10})
+	if err != nil {
+		t.Fatalf("ListActiveUsageIdentitiesPage returned error: %v", err)
+	}
+	byIdentity := make(map[string]entities.UsageIdentity, len(items))
+	for _, item := range items {
+		byIdentity[item.Identity] = item
+	}
+	if got := byIdentity["priced-auth"].TotalCost; got != 3.85 {
+		t.Fatalf("priced-auth TotalCost = %v, want 3.85", got)
+	}
+	if !byIdentity["priced-auth"].CostAvailable {
+		t.Fatal("priced-auth CostAvailable = false, want true")
+	}
+	if byIdentity["unpriced-auth"].CostAvailable {
+		t.Fatal("unpriced-auth CostAvailable = true, want false")
 	}
 }
 

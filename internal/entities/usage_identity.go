@@ -40,6 +40,8 @@ type UsageIdentity struct {
 	ReasoningTokens int64
 	CachedTokens    int64
 	TotalTokens     int64
+	TotalCost       float64 `gorm:"-"`
+	CostAvailable   bool    `gorm:"-"`
 
 	LastAggregatedUsageEventID int64
 	FirstUsedAt                *time.Time `gorm:"serializer:storageTime"`

@@ -65,6 +65,18 @@ Expected state payload:
 }
 ```
 
+Unavailable/error accounts may additionally include:
+
+```json
+{
+  "status": "error",
+  "status_message": "unauthorized",
+  "unavailable": true,
+  "unavailable_reason": "401 unauthorized",
+  "last_error": { "code": "unauthorized", "message": "request returned 401", "http_status": 401, "retryable": false }
+}
+```
+
 CPA is the source of truth for Codex quota refresh/probe, score calculation, current model-account selection, plan type hints, reset times, and routing strategy. The stats project should consume CPA state and avoid duplicating Codex refresh logic in the browser.
 
 ## Codex Quota Sync Flow
@@ -79,6 +91,8 @@ There are two refresh paths:
 For Codex Auth File rows, `codex_quota` from CPA state has display priority over usage-keeper's local quota cache. This prevents stale local quota cache data from hiding fresher CPA inspection results. The local quota cache remains useful for non-Codex providers and as a manual-refresh task result, but Codex scheduling-relevant quota should be read from CPA state.
 
 The frontend currently polls Codex state every 15 seconds while the Credentials tab data hook is enabled. This keeps the page aligned with CPA account switching, including automatic changes to `current_selections` and `on_device`.
+
+CPA sanitizes impossible five-hour reset timestamps before exposing Codex state. A five-hour bucket with `reset_at` more than six hours in the future is treated as stale/incorrect display data and hidden from the payload and pool summary while weekly data is preserved. The frontend repeats the same guard before rendering Auth File rows, so a polluted 5h reset cannot make the row look valid.
 
 ## Local Stats API
 
@@ -121,6 +135,10 @@ The CPA巡检更新时间 is intentionally not shown in account rows because it 
 - Refreshing the current page or a single row updates the local quota cache and also asks CPA to refresh Codex state for those auth indexes.
 - Codex-specific row additions are intentionally compact: final score, manual adjustment input, and save action.
 - Auth Files default to Codex score descending. If CPA marks an account through `on_device` or `current_selections`, that current account is pinned and highlighted above score order.
+- Auth File rows show two money values:
+  - Token cost comes from the row's historical usage events, grouped by account/model and priced with the current model pricing settings. If a used model has no price and has billable tokens, the row marks cost as unavailable instead of pretending the value is exact.
+  - Quota amount comes from the account's Codex quota limit, preferring the weekly limit because weekly is the scheduling-critical quota for `codex-quota-score`.
+- If CPA marks an account `status=error` or `unavailable=true`, Auth Files displays `unavailable_reason` or `last_error` details such as `401 unauthorized`. These rows are operationally different from accounts that simply have no quota data yet.
 - Rows do not show pool totals, current strategy, or CPA巡检更新时间.
 
 ## Codex Pool Integration
@@ -155,6 +173,7 @@ Recommended local shape:
 - usage-keeper container: `http://127.0.0.1:18082`
 - Container CPA base URL: `http://host.docker.internal:8318`
 - Auth disabled for local verification: `AUTH_ENABLED=false`
+- Real Codex upstream traffic should use the local HTTP proxy `http://127.0.0.1:7899` in the CPA credential/global proxy config. This is especially important when testing real-account quota inspection from the local Windows environment.
 
 When using a host HTTP proxy for Docker image pulls, do not proxy traffic from the container back to the host CPA tunnel. Set both `NO_PROXY` and `no_proxy` to include `host.docker.internal,127.0.0.1,localhost`; otherwise Codex state calls can be routed through the proxy and return `502`.
 

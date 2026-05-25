@@ -30,6 +30,8 @@ function identity(overrides: Partial<UsageIdentity>): UsageIdentity {
     reasoning_tokens: overrides.reasoning_tokens ?? 0,
     cached_tokens: overrides.cached_tokens ?? 0,
     total_tokens: overrides.total_tokens ?? 0,
+    total_cost: overrides.total_cost ?? 0,
+    cost_available: overrides.cost_available ?? false,
     last_aggregated_usage_event_id: overrides.last_aggregated_usage_event_id ?? '0',
     first_used_at: overrides.first_used_at,
     last_used_at: overrides.last_used_at,
@@ -148,7 +150,7 @@ describe('credentialViewModels', () => {
       ]],
     ])
 
-    const rows = buildAuthFileCredentialRows([identity({ identity: 'auth-1', displayName: 'Claude Auth', total_requests: 10, success_count: 9, input_tokens: 750, cached_tokens: 250, total_tokens: 1500 })], quotas)
+    const rows = buildAuthFileCredentialRows([identity({ identity: 'auth-1', displayName: 'Claude Auth', total_requests: 10, success_count: 9, input_tokens: 750, cached_tokens: 250, total_tokens: 1500, total_cost: 0.42, cost_available: true })], quotas)
 
     expect(rows[0].displayName).toBe('Claude Auth')
     expect(rows[0].typeLabel).toBe('claude')
@@ -156,6 +158,8 @@ describe('credentialViewModels', () => {
     expect(rows[0].successCount).toBe(9)
     expect(rows[0].failureCount).toBe(0)
     expect(rows[0].totalTokens).toBe(1500)
+    expect(rows[0].totalCost).toBe(0.42)
+    expect(rows[0].costAvailable).toBe(true)
     expect(rows[0].cacheRate).toBe(25)
     expect(rows[0].primaryQuota?.label).toBe('5h')
     expect(rows[0].primaryQuota?.percent).toBe(72)
@@ -166,7 +170,27 @@ describe('credentialViewModels', () => {
     expect(rows[0].secondaryQuota?.percent).toBe(40)
     expect(rows[0].secondaryQuota?.percentKind).toBe('used')
     expect(rows[0].secondaryQuota?.barPercent).toBe(60)
+    expect(rows[0].quotaTotalAmount).toBe(100)
     expect(rows[0].extraQuota.map((quota) => quota.label)).toEqual(['Code Assist Credit'])
+  })
+
+  it('keeps Codex unavailable reason and refresh error on auth file rows', () => {
+    const rows = buildAuthFileCredentialRows([
+      identity({ identity: 'codex-auth', provider: 'codex', type: 'codex' }),
+    ], new Map(), new Map(), new Map([
+      ['codex-auth', {
+        status: 'error',
+        unavailable: true,
+        unavailableReason: '401 unauthorized',
+        quotaRefreshStatus: 'error',
+        quotaRefreshError: 'usage returned 403',
+      }],
+    ]))
+
+    expect(rows[0].codexStatus).toBe('error')
+    expect(rows[0].codexUnavailable).toBe(true)
+    expect(rows[0].codexUnavailableReason).toBe('401 unauthorized')
+    expect(rows[0].codexQuotaRefreshError).toBe('usage returned 403')
   })
 
   it('filters auth file credentials by account identity display name and plan fields', () => {

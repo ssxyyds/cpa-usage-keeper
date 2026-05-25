@@ -13,7 +13,7 @@ import { useCredentialPages } from './useCredentialPages'
 import { useQuotaCache } from './useQuotaCache'
 import { ApiError, fetchCodexState, refreshCodexState, updateCodexManualScore, type UsageIdentityPageSort } from '@/lib/api'
 import { quotaRefreshDisplayError, useQuotaRefreshTasks } from './useQuotaRefreshTasks'
-import type { CodexQuotaState, CodexStateResponse, UsageQuotaRow } from '@/lib/types'
+import type { CodexQuotaState, CodexStateAccount, CodexStateResponse, UsageQuotaRow } from '@/lib/types'
 
 interface UseCredentialsTabDataOptions {
   enabled: boolean
@@ -81,13 +81,7 @@ export function useCredentialsTabData({ enabled, onAuthRequired }: UseCredential
         if (!authIndex) {
           continue
         }
-        nextStates[authIndex] = {
-          score: account.codex_computed_score ?? account.codex_score_explanation?.computed_score_live,
-          manualAdjustment: account.codex_manual_score_adjustment ?? account.codex_score_explanation?.manual_adjustment,
-          scoreReason: account.codex_score_reason ?? account.codex_last_selection_reason,
-          current: account.on_device === true || currentAuthIndexes.has(authIndex),
-          quota: codexQuotaToRows(account.codex_quota),
-        }
+        nextStates[authIndex] = codexCredentialStateFromAccount(account, currentAuthIndexes)
       }
       setCodexCredentialStates(nextStates)
     } catch (nextError) {
@@ -187,7 +181,8 @@ export function useCredentialsTabData({ enabled, onAuthRequired }: UseCredential
     await refreshCodexCredentialStates()
   }, [quotaRefreshTasks, refreshCodexCredentialStates])
   const updateCodexManualScoreForAuthIndex = useCallback(async (authIndex: string, adjustment: number) => {
-    await updateCodexManualScore(authIndex, adjustment)
+    const response = await updateCodexManualScore(authIndex, adjustment)
+    setCodexCredentialStates((current) => mergeCodexManualScoreUpdate(current, authIndex, adjustment, response))
     await refreshCodexCredentialStates()
   }, [refreshCodexCredentialStates])
   const refresh = useCallback(async () => {
@@ -267,6 +262,52 @@ export function codexCurrentAuthIndexSet(response: CodexStateResponse): Set<stri
   return currentAuthIndexes
 }
 
+export function codexCredentialStateFromAccount(account: CodexStateAccount, currentAuthIndexes: Set<string>): CodexCredentialState {
+  const computedScore = finiteNumber(account.codex_computed_score) ?? finiteNumber(account.codex_score_explanation?.computed_score_live)
+  const manualAdjustment = finiteNumber(account.codex_manual_score_adjustment) ?? finiteNumber(account.codex_score_explanation?.manual_adjustment)
+  const authIndex = account.auth_index?.trim()
+  return {
+    score: computedScore ?? manualAdjustment,
+    manualAdjustment,
+    scoreReason: account.codex_score_reason ?? account.codex_last_selection_reason ?? account.codex_score_explanation?.disqualifier_reason,
+    current: account.on_device === true || (authIndex ? currentAuthIndexes.has(authIndex) : false),
+    quota: codexQuotaToRows(account.codex_quota),
+    status: account.status?.trim(),
+    statusMessage: account.status_message?.trim(),
+    unavailable: account.unavailable === true,
+    unavailableReason: account.unavailable_reason?.trim() || codexLastErrorReason(account),
+    lastError: account.last_error,
+    quotaRefreshStatus: account.codex_quota?.refresh_status?.trim(),
+    quotaRefreshError: account.codex_quota?.refresh_error?.trim(),
+  }
+}
+
+export function mergeCodexManualScoreUpdate(current: Record<string, CodexCredentialState>, authIndex: string, adjustment: number, response: unknown): Record<string, CodexCredentialState> {
+  const account = isCodexStateAccountLike(response) ? response : {}
+  const key = account.auth_index?.trim() || authIndex
+  if (!key) {
+    return current
+  }
+  const existing = current[key]
+  const computedScore = finiteNumber(account.codex_computed_score) ?? finiteNumber(account.codex_score_explanation?.computed_score_live)
+  const manualAdjustment = finiteNumber(account.codex_manual_score_adjustment) ?? finiteNumber(account.codex_score_explanation?.manual_adjustment) ?? adjustment
+  return {
+    ...current,
+    [key]: {
+      ...existing,
+      score: computedScore ?? manualAdjustment,
+      manualAdjustment,
+      scoreReason: account.codex_score_reason ?? account.codex_last_selection_reason ?? account.codex_score_explanation?.disqualifier_reason ?? existing?.scoreReason,
+      current: existing?.current,
+      quota: existing?.quota,
+    },
+  }
+}
+
+function isCodexStateAccountLike(value: unknown): value is CodexStateAccount {
+  return typeof value === 'object' && value !== null
+}
+
 export function codexQuotaToRows(quota: CodexQuotaState | undefined): UsageQuotaRow[] | undefined {
   if (!quota) {
     return undefined
@@ -278,8 +319,16 @@ export function codexQuotaToRows(quota: CodexQuotaState | undefined): UsageQuota
   return rows.length > 0 ? rows : undefined
 }
 
+function finiteNumber(value: number | undefined): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
 function codexQuotaWindowToRow(key: string, label: string, window: CodexQuotaState['five_hour'], seconds: number): UsageQuotaRow | undefined {
   if (!window || !Number.isFinite(window.remaining) || !Number.isFinite(window.limit) || (window.limit ?? 0) <= 0) {
+    return undefined
+  }
+  const resetAt = codexQuotaResetAt(window)
+  if (seconds === 18_000 && isImpossibleFiveHourReset(resetAt)) {
     return undefined
   }
   const remaining = Number(window.remaining)
@@ -290,9 +339,32 @@ function codexQuotaWindowToRow(key: string, label: string, window: CodexQuotaSta
     remaining,
     limit,
     remainingFraction: remaining / limit,
-    resetAt: codexQuotaResetAt(window),
+    resetAt,
     window: { seconds },
   }
+}
+
+function codexLastErrorReason(account: CodexStateAccount): string | undefined {
+  const error = account.last_error
+  if (!error) {
+    return undefined
+  }
+  const detail = error.code?.trim() || account.status_message?.trim() || error.message?.trim()
+  if (Number.isFinite(error.http_status)) {
+    return detail ? `${error.http_status} ${detail}` : String(error.http_status)
+  }
+  return detail || undefined
+}
+
+function isImpossibleFiveHourReset(resetAt: string | undefined): boolean {
+  if (!resetAt) {
+    return false
+  }
+  const resetMs = Date.parse(resetAt)
+  if (!Number.isFinite(resetMs)) {
+    return false
+  }
+  return resetMs - Date.now() > 6 * 60 * 60 * 1000
 }
 
 function codexQuotaResetAt(window: CodexQuotaState['five_hour']): string | undefined {

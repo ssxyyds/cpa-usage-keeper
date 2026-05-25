@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -105,6 +106,9 @@ func ListUsageIdentities(ctx context.Context, db *gorm.DB) ([]entities.UsageIden
 	if err := db.WithContext(ctx).Select(usageIdentityReadColumns).Order("auth_type asc, name asc, id asc").Find(&identities).Error; err != nil {
 		return nil, fmt.Errorf("list usage identities: %w", err)
 	}
+	if err := annotateUsageIdentityCosts(ctx, db, identities); err != nil {
+		return nil, err
+	}
 	return identities, nil
 }
 
@@ -117,6 +121,9 @@ func ListActiveUsageIdentities(ctx context.Context, db *gorm.DB) ([]entities.Usa
 	var identities []entities.UsageIdentity
 	if err := activeUsageIdentitiesQuery(db.WithContext(ctx), nil).Select(usageIdentityReadColumns).Order("auth_type asc, name asc, id asc").Find(&identities).Error; err != nil {
 		return nil, fmt.Errorf("list active usage identities: %w", err)
+	}
+	if err := annotateUsageIdentityCosts(ctx, db, identities); err != nil {
+		return nil, err
 	}
 	return identities, nil
 }
@@ -147,7 +154,126 @@ func ListActiveUsageIdentitiesPage(ctx context.Context, db *gorm.DB, request Lis
 	if err := applyUsageIdentityPageSort(query.Select(usageIdentityReadColumns), request.Sort).Offset((page - 1) * pageSize).Limit(pageSize).Find(&identities).Error; err != nil {
 		return nil, 0, fmt.Errorf("list active usage identities page: %w", err)
 	}
+	if err := annotateUsageIdentityCosts(ctx, db, identities); err != nil {
+		return nil, 0, err
+	}
 	return identities, total, nil
+}
+
+type usageIdentityCostAggregate struct {
+	AuthType     string
+	AuthIndex    string
+	Model        string
+	InputTokens  int64
+	OutputTokens int64
+	CachedTokens int64
+}
+
+func annotateUsageIdentityCosts(ctx context.Context, db *gorm.DB, identities []entities.UsageIdentity) error {
+	if len(identities) == 0 {
+		return nil
+	}
+	pricingByModel, err := loadPriceSettingsByModel(db.WithContext(ctx))
+	if err != nil {
+		return fmt.Errorf("load usage identity pricing: %w", err)
+	}
+
+	indexesByEventAuthType := map[string][]string{}
+	for index := range identities {
+		identities[index].CostAvailable = true
+		if eventAuthType, ok := usageIdentityEventAuthType(identities[index].AuthType); ok {
+			indexesByEventAuthType[eventAuthType] = append(indexesByEventAuthType[eventAuthType], strings.TrimSpace(identities[index].Identity))
+		}
+	}
+	if len(indexesByEventAuthType) == 0 {
+		return nil
+	}
+
+	costByKey := map[string]float64{}
+	availableByKey := map[string]bool{}
+	for eventAuthType, authIndexes := range indexesByEventAuthType {
+		authIndexes = uniqueNonEmptyStrings(authIndexes)
+		for start := 0; start < len(authIndexes); start += usageIdentityCostQueryBatchSize {
+			end := min(start+usageIdentityCostQueryBatchSize, len(authIndexes))
+			var aggregates []usageIdentityCostAggregate
+			if err := db.WithContext(ctx).Model(&entities.UsageEvent{}).
+				Select(`
+					auth_type,
+					auth_index,
+					model,
+					COALESCE(SUM(input_tokens), 0) AS input_tokens,
+					COALESCE(SUM(output_tokens), 0) AS output_tokens,
+					COALESCE(SUM(cached_tokens), 0) AS cached_tokens`).
+				Where("auth_type = ? AND auth_index IN ?", eventAuthType, authIndexes[start:end]).
+				Group("auth_type, auth_index, model").
+				Scan(&aggregates).Error; err != nil {
+				return fmt.Errorf("aggregate usage identity cost: %w", err)
+			}
+			for _, aggregate := range aggregates {
+				key := usageIdentityCostKey(aggregate.AuthType, aggregate.AuthIndex)
+				if _, ok := availableByKey[key]; !ok {
+					availableByKey[key] = true
+				}
+				pricing, ok := pricingByModel[strings.TrimSpace(aggregate.Model)]
+				if !ok && usageOverviewStatRequiresPricing(aggregate.InputTokens, aggregate.OutputTokens, aggregate.CachedTokens) {
+					availableByKey[key] = false
+					continue
+				}
+				costByKey[key] += calculateUsageOverviewStatCost(aggregate.InputTokens, aggregate.OutputTokens, aggregate.CachedTokens, pricing)
+			}
+		}
+	}
+
+	for index := range identities {
+		eventAuthType, ok := usageIdentityEventAuthType(identities[index].AuthType)
+		if !ok {
+			continue
+		}
+		key := usageIdentityCostKey(eventAuthType, identities[index].Identity)
+		identities[index].TotalCost = roundUsageIdentityCost(costByKey[key])
+		if available, exists := availableByKey[key]; exists {
+			identities[index].CostAvailable = available
+		}
+	}
+	return nil
+}
+
+func roundUsageIdentityCost(value float64) float64 {
+	return math.Round(value*1_000_000) / 1_000_000
+}
+
+const usageIdentityCostQueryBatchSize = 400
+
+func usageIdentityEventAuthType(authType entities.UsageIdentityAuthType) (string, bool) {
+	switch authType {
+	case entities.UsageIdentityAuthTypeAuthFile:
+		return "oauth", true
+	case entities.UsageIdentityAuthTypeAIProvider:
+		return "apikey", true
+	default:
+		return "", false
+	}
+}
+
+func usageIdentityCostKey(authType, authIndex string) string {
+	return strings.TrimSpace(authType) + "\x00" + strings.TrimSpace(authIndex)
+}
+
+func uniqueNonEmptyStrings(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		if _, ok := seen[trimmed]; ok {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		result = append(result, trimmed)
+	}
+	return result
 }
 
 func activeUsageIdentitiesQuery(db *gorm.DB, authType *entities.UsageIdentityAuthType) *gorm.DB {

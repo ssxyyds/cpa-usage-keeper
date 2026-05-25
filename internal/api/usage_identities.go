@@ -48,6 +48,8 @@ type usageIdentityResponse struct {
 	ReasoningTokens            int64                          `json:"reasoning_tokens"`
 	CachedTokens               int64                          `json:"cached_tokens"`
 	TotalTokens                int64                          `json:"total_tokens"`
+	TotalCost                  float64                        `json:"total_cost"`
+	CostAvailable              bool                           `json:"cost_available"`
 	LastAggregatedUsageEventID string                         `json:"last_aggregated_usage_event_id"`
 	FirstUsedAt                *time.Time                     `json:"first_used_at,omitempty"`
 	LastUsedAt                 *time.Time                     `json:"last_used_at,omitempty"`
@@ -186,6 +188,8 @@ func mapUsageIdentityResponse(item entities.UsageIdentity) usageIdentityResponse
 		ReasoningTokens:            item.ReasoningTokens,
 		CachedTokens:               item.CachedTokens,
 		TotalTokens:                item.TotalTokens,
+		TotalCost:                  item.TotalCost,
+		CostAvailable:              item.CostAvailable,
 		LastAggregatedUsageEventID: strconv.FormatInt(item.LastAggregatedUsageEventID, 10),
 		FirstUsedAt:                item.FirstUsedAt,
 		LastUsedAt:                 item.LastUsedAt,
