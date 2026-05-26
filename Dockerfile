@@ -3,11 +3,12 @@
 FROM node:22-alpine AS web-builder
 WORKDIR /app/web
 COPY web/package.json web/package-lock.json ./
-RUN npm ci
+RUN npm config set registry https://registry.npmmirror.com && npm ci
 COPY web/ ./
 RUN npm run build
 
 FROM golang:1.22-alpine AS go-builder
+ENV GOPROXY=https://goproxy.cn,direct
 WORKDIR /app
 RUN apk add --no-cache build-base
 COPY go.mod go.sum ./
@@ -23,7 +24,8 @@ RUN CGO_ENABLED=1 GOOS=linux go build \
 
 FROM alpine:3.20
 WORKDIR /
-RUN apk add --no-cache ca-certificates tzdata su-exec \
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories \
+	&& apk add --no-cache ca-certificates tzdata su-exec \
 	&& addgroup -S app \
 	&& adduser -S -G app app \
 	&& mkdir -p /data \
