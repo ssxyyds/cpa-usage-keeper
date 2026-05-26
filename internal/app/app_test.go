@@ -3,6 +3,8 @@ package app
 import (
 	"bytes"
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -36,7 +38,7 @@ func TestAppCloseClosesDatabase(t *testing.T) {
 	}
 }
 
-func TestNewWithConfigBuildsRedisDrainAndRouter(t *testing.T) {
+func TestNewWithConfigBuildsRedisIngestAndRouter(t *testing.T) {
 	app, err := NewWithConfig(testAppConfig(t))
 	if err != nil {
 		t.Fatalf("NewWithConfig returned error: %v", err)
@@ -45,8 +47,8 @@ func TestNewWithConfigBuildsRedisDrainAndRouter(t *testing.T) {
 	if app.Poller == nil {
 		t.Fatal("expected poller status provider to be initialized")
 	}
-	if app.RedisPull == nil {
-		t.Fatal("expected redis pull runner to be initialized")
+	if app.RedisIngest == nil {
+		t.Fatal("expected redis ingest runner to be initialized")
 	}
 	if app.RedisProcess == nil {
 		t.Fatal("expected redis process runner to be initialized")
@@ -62,6 +64,31 @@ func TestNewWithConfigBuildsRedisDrainAndRouter(t *testing.T) {
 	}
 	if app.MetadataSync == nil {
 		t.Fatal("expected metadata sync runner to be initialized")
+	}
+}
+
+func TestNewWithConfigExposesConfiguredCPAPublicURL(t *testing.T) {
+	cfg := testAppConfig(t)
+	cfg.CPAPublicURL = "https://cpa.public.example.com/"
+	app, err := NewWithConfig(cfg)
+	if err != nil {
+		t.Fatalf("NewWithConfig returned error: %v", err)
+	}
+	defer app.Close()
+
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/status", nil)
+	app.Router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+	body := resp.Body.String()
+	if !strings.Contains(body, `"cpa_public_url":"https://cpa.public.example.com/"`) {
+		t.Fatalf("expected CPA public URL in status response, got %s", body)
+	}
+	if strings.Contains(body, "cpa_management_url") {
+		t.Fatalf("expected status response to use cpa_public_url instead of cpa_management_url, got %s", body)
 	}
 }
 
@@ -125,17 +152,17 @@ func TestNewWithConfigSkipsBackupRunnerWhenDisabled(t *testing.T) {
 	}
 }
 
-func TestNewWithConfigSelectsRedisDrain(t *testing.T) {
+func TestNewWithConfigSelectsRedisIngestRunners(t *testing.T) {
 	app, err := NewWithConfig(testAppConfig(t))
 	if err != nil {
 		t.Fatalf("NewWithConfig returned error: %v", err)
 	}
 	defer app.Close()
-	if _, ok := app.Poller.(*poller.RedisDrain); !ok {
-		t.Fatalf("expected redis status provider to use redis drain, got %T", app.Poller)
+	if _, ok := app.Poller.(*poller.RedisPoller); !ok {
+		t.Fatalf("expected redis status provider to use redis poller, got %T", app.Poller)
 	}
-	if _, ok := app.RedisPull.(*poller.RedisPullRunner); !ok {
-		t.Fatalf("expected redis pull runner, got %T", app.RedisPull)
+	if _, ok := app.RedisIngest.(*poller.RedisIngestRunner); !ok {
+		t.Fatalf("expected redis ingest runner, got %T", app.RedisIngest)
 	}
 	if _, ok := app.RedisProcess.(*poller.RedisProcessRunner); !ok {
 		t.Fatalf("expected redis process runner, got %T", app.RedisProcess)
@@ -154,8 +181,8 @@ func TestNewWithConfigCreatesIndependentMaintenanceRunner(t *testing.T) {
 	if app.Poller == nil {
 		t.Fatal("expected sync status provider to be initialized")
 	}
-	if app.RedisPull == nil {
-		t.Fatal("expected independent redis pull runner to be initialized")
+	if app.RedisIngest == nil {
+		t.Fatal("expected independent redis ingest runner to be initialized")
 	}
 	if app.RedisProcess == nil {
 		t.Fatal("expected independent redis process runner to be initialized")
@@ -193,7 +220,7 @@ func TestRunStartsPollerAndMaintenanceIndependently(t *testing.T) {
 		Config:            &cfg,
 		Router:            gin.New(),
 		Poller:            statusProvider,
-		RedisPull:         &appRunStub{started: pullStarted},
+		RedisIngest:       &appRunStub{started: pullStarted},
 		RedisProcess:      &appRunStub{started: processStarted},
 		Maintenance:       maintenance,
 		MetadataSync:      metadataRunner,
@@ -206,7 +233,7 @@ func TestRunStartsPollerAndMaintenanceIndependently(t *testing.T) {
 	select {
 	case <-pullStarted:
 	case <-time.After(time.Second):
-		t.Fatal("expected redis pull runner to start")
+		t.Fatal("expected redis ingest runner to start")
 	}
 	select {
 	case <-processStarted:
@@ -279,10 +306,6 @@ func (s *appRunStub) Run(context.Context) error {
 
 func (s *appRunStub) Status() poller.Status {
 	return poller.Status{}
-}
-
-func (s *appRunStub) SyncNow(context.Context) error {
-	return nil
 }
 
 func captureAppInfoLogs(t *testing.T) *bytes.Buffer {

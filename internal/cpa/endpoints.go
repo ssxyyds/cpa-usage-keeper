@@ -17,9 +17,12 @@ const (
 	cpaManagementCodexManualScoreEndpoint    = "/v0/management/codex-state/manual-score"
 	cpaModelsEndpoint                        = "/v1/models"
 
-	cpaManagementRedisNetwork     = "tcp"
-	ManagementRedisDefaultPort    = "8317"
-	cpaManagementRedisAuthCommand = "AUTH"
-	cpaManagementRedisPopCommand  = "LPOP"
-	ManagementUsageQueueKey       = "queue"
+	cpaManagementRedisNetwork        = "tcp"
+	ManagementRedisDefaultPort       = "8317"
+	ManagementRedisAuthCommand       = "AUTH"
+	ManagementRedisPopCommand        = "LPOP"
+	ManagementRedisSubscribeCommand  = "SUBSCRIBE"
+	ManagementUsageQueueKey          = "queue"
+	ManagementUsageSubscribeChannel  = "usage"
+	ManagementUsageQueueMaxBatchSize = 10000
 )
