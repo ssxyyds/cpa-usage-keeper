@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { buildCodexWeeklyUsageWindowRequests, codexCredentialStateFromAccount, codexCurrentAuthIndexSet, codexQuotaToRows, mergeCodexManualScoreUpdate, quotaRefreshDisplayError } from './useCredentialsTabData'
+import { buildCodexWeeklyUsageWindowRequests, buildManualQuotaRefreshTargets, codexCredentialStateFromAccount, codexCurrentAuthIndexSet, codexQuotaToRows, mergeCodexManualScoreUpdate, quotaRefreshDisplayError } from './useCredentialsTabData'
 
 describe('quotaRefreshDisplayError', () => {
   it('turns refresh rejection codes into friendly messages', () => {
@@ -130,6 +130,23 @@ describe('buildCodexWeeklyUsageWindowRequests', () => {
     ], new Date('2026-05-24T13:00:00Z'))
 
     expect(windows).toEqual([])
+  })
+})
+
+describe('buildManualQuotaRefreshTargets', () => {
+  it('routes Codex auth indexes to CPA refresh and keeps non-Codex indexes on local quota refresh', () => {
+    const targets = buildManualQuotaRefreshTargets(
+      ['codex-1', 'claude-1', 'codex-2'],
+      new Map([
+        ['codex-1', {}],
+        ['codex-2', {}],
+      ]),
+    )
+
+    expect(targets).toEqual({
+      codexAuthIndexes: ['codex-1', 'codex-2'],
+      localQuotaAuthIndexes: ['claude-1'],
+    })
   })
 })
 

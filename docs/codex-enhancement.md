@@ -2,6 +2,8 @@
 
 This branch keeps the stats project fork-friendly while integrating the Codex-specific CPA enhancements from `CLIProxyAPI` branch `codex-enhancement`.
 
+Prefer reusing existing, upstream-verified project modules and flows before adding new enhancement code. The open-source main branches of CPA and usage-keeper have broader validation than local handwritten replacements; new stats-side Codex logic should be a thin adapter only when the existing CPA client, quota provider, sync, API, or frontend data modules cannot cover the requirement.
+
 ## Branch
 
 - Stats project branch: `codex-enhancement`

@@ -183,15 +183,25 @@ export function useCredentialsTabData({ enabled, onAuthRequired }: UseCredential
     [credentialPages.aiProviderIdentities],
   )
   const refreshQuotaForCurrentAuthFilePage = useCallback(async () => {
-    await quotaRefreshTasks.refreshQuotaForCurrentAuthFilePage()
-    await refreshCodexState(currentAuthIndexes)
-    await refreshCodexCredentialStates()
-  }, [currentAuthIndexes, quotaRefreshTasks, refreshCodexCredentialStates])
+    const refreshTargets = buildManualQuotaRefreshTargets(currentAuthIndexes, codexStatesByAuthIndex)
+    if (refreshTargets.localQuotaAuthIndexes.length > 0) {
+      await quotaRefreshTasks.refreshQuotaForAuthIndexes(refreshTargets.localQuotaAuthIndexes)
+    }
+    if (refreshTargets.codexAuthIndexes.length > 0) {
+      await refreshCodexState(refreshTargets.codexAuthIndexes)
+      await refreshCodexCredentialStates()
+    }
+  }, [codexStatesByAuthIndex, currentAuthIndexes, quotaRefreshTasks, refreshCodexCredentialStates])
   const refreshQuotaForAuthIndex = useCallback(async (authIndex: string) => {
-    await quotaRefreshTasks.refreshQuotaForAuthIndex(authIndex)
-    await refreshCodexState([authIndex])
-    await refreshCodexCredentialStates()
-  }, [quotaRefreshTasks, refreshCodexCredentialStates])
+    const refreshTargets = buildManualQuotaRefreshTargets([authIndex], codexStatesByAuthIndex)
+    if (refreshTargets.localQuotaAuthIndexes.length > 0) {
+      await quotaRefreshTasks.refreshQuotaForAuthIndex(authIndex)
+    }
+    if (refreshTargets.codexAuthIndexes.length > 0) {
+      await refreshCodexState(refreshTargets.codexAuthIndexes)
+      await refreshCodexCredentialStates()
+    }
+  }, [codexStatesByAuthIndex, quotaRefreshTasks, refreshCodexCredentialStates])
   const updateCodexManualScoreForAuthIndex = useCallback(async (authIndex: string, adjustment: number) => {
     const response = await updateCodexManualScore(authIndex, adjustment)
     setCodexCredentialStates((current) => mergeCodexManualScoreUpdate(current, authIndex, adjustment, response))
@@ -289,6 +299,28 @@ export function buildCodexWeeklyUsageWindowRequests(accounts: CodexStateAccount[
     })
   }
   return windows
+}
+
+export interface ManualQuotaRefreshTargets {
+  codexAuthIndexes: string[]
+  localQuotaAuthIndexes: string[]
+}
+
+export function buildManualQuotaRefreshTargets(authIndexes: string[], codexStatesByAuthIndex: ReadonlyMap<string, unknown>): ManualQuotaRefreshTargets {
+  const codexAuthIndexes: string[] = []
+  const localQuotaAuthIndexes: string[] = []
+  for (const rawAuthIndex of authIndexes) {
+    const authIndex = rawAuthIndex.trim()
+    if (!authIndex) {
+      continue
+    }
+    if (codexStatesByAuthIndex.has(authIndex)) {
+      codexAuthIndexes.push(authIndex)
+    } else {
+      localQuotaAuthIndexes.push(authIndex)
+    }
+  }
+  return { codexAuthIndexes, localQuotaAuthIndexes }
 }
 
 function parseTimestampMs(value: string | undefined): number | undefined {

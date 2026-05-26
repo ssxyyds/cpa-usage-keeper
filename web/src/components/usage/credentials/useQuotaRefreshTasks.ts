@@ -27,6 +27,7 @@ export interface QuotaRefreshTasksState {
   quotaRefreshing: boolean
   quotaRefreshError: string
   refreshQuotaForCurrentAuthFilePage: () => Promise<void>
+  refreshQuotaForAuthIndexes: (authIndexes: string[]) => Promise<void>
   refreshQuotaForAuthIndex: (authIndex: string) => Promise<void>
 }
 
@@ -169,11 +170,15 @@ export function useQuotaRefreshTasks({ enabled, currentAuthIndexes, setQuotaByAu
     }
   }, [onAuthRequired])
 
-  const refreshQuotaForCurrentAuthFilePage = useCallback(async () => {
+  const refreshQuotaForAuthIndexes = useCallback(async (authIndexes: string[]) => {
     // 批量刷新只提交当前页且未在工作的条目，单行刷新中的任务不会重复入队。
-    const refreshableAuthIndexes = currentAuthIndexes.filter((authIndex) => !isQuotaRefreshWorking(quotaStateByAuthIndex[authIndex]))
+    const refreshableAuthIndexes = authIndexes.filter((authIndex) => !isQuotaRefreshWorking(quotaStateByAuthIndex[authIndex]))
     await startQuotaRefresh(refreshableAuthIndexes, 'batch')
-  }, [currentAuthIndexes, quotaStateByAuthIndex, startQuotaRefresh])
+  }, [quotaStateByAuthIndex, startQuotaRefresh])
+
+  const refreshQuotaForCurrentAuthFilePage = useCallback(async () => {
+    await refreshQuotaForAuthIndexes(currentAuthIndexes)
+  }, [currentAuthIndexes, refreshQuotaForAuthIndexes])
 
   const refreshQuotaForAuthIndex = useCallback(async (authIndex: string) => {
     if (isQuotaRefreshWorking(quotaStateByAuthIndex[authIndex])) {
@@ -187,6 +192,7 @@ export function useQuotaRefreshTasks({ enabled, currentAuthIndexes, setQuotaByAu
     quotaRefreshing,
     quotaRefreshError,
     refreshQuotaForCurrentAuthFilePage,
+    refreshQuotaForAuthIndexes,
     refreshQuotaForAuthIndex,
   }
 }
