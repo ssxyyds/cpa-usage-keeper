@@ -246,6 +246,26 @@ describe('codexCredentialStateFromAccount', () => {
     expect(state.quotaRefreshStatus).toBe('error')
     expect(state.quotaRefreshError).toBe('codex quota refresh: usage returned 403')
   })
+
+  it('keeps Codex probe and bootstrap diagnostics from CPA quota state', () => {
+    const state = codexCredentialStateFromAccount({
+      auth_index: 'codex-1',
+      codex_quota: {
+        refresh_status: 'error',
+        refresh_error: 'codex quota refresh: usage returned 403',
+        probe_status: 'verified',
+        probe_at: '2026-05-24T12:00:00Z',
+        bootstrap_status: 'pending',
+        bootstrap_next_after: '2026-05-24T12:15:00Z',
+      },
+    }, new Set())
+
+    expect(state.probeStatus).toBe('verified')
+    expect(state.probeAt).toBe('2026-05-24T12:00:00Z')
+    expect(state.bootstrapStatus).toBe('pending')
+    expect(state.bootstrapNextAfter).toBe('2026-05-24T12:15:00Z')
+    expect(state.quotaRefreshError).toBe('codex quota refresh: usage returned 403')
+  })
 })
 
 describe('mergeCodexManualScoreUpdate', () => {

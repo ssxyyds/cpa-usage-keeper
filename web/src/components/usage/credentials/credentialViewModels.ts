@@ -47,6 +47,12 @@ export interface CodexCredentialState {
   }
   quotaRefreshStatus?: string
   quotaRefreshError?: string
+  probeStatus?: string
+  probeAt?: string
+  probeError?: string
+  bootstrapStatus?: string
+  bootstrapNextAfter?: string
+  bootstrapError?: string
 }
 
 export interface AuthFileCredentialRow {
@@ -80,6 +86,12 @@ export interface AuthFileCredentialRow {
   codexUnavailableReason?: string
   codexQuotaRefreshStatus?: string
   codexQuotaRefreshError?: string
+  codexProbeStatus?: string
+  codexProbeAt?: string
+  codexProbeError?: string
+  codexBootstrapStatus?: string
+  codexBootstrapNextAfter?: string
+  codexBootstrapError?: string
   isCodexCurrent?: boolean
   primaryQuota?: DisplayQuota
   secondaryQuota?: DisplayQuota
@@ -198,6 +210,12 @@ export function buildAuthFileCredentialRows(
       codexUnavailableReason: codexState?.unavailableReason,
       codexQuotaRefreshStatus: codexState?.quotaRefreshStatus,
       codexQuotaRefreshError: codexState?.quotaRefreshError,
+      codexProbeStatus: codexState?.probeStatus,
+      codexProbeAt: codexState?.probeAt,
+      codexProbeError: codexState?.probeError,
+      codexBootstrapStatus: codexState?.bootstrapStatus,
+      codexBootstrapNextAfter: codexState?.bootstrapNextAfter,
+      codexBootstrapError: codexState?.bootstrapError,
       isCodexCurrent: codexState?.current === true,
       primaryQuota,
       secondaryQuota,

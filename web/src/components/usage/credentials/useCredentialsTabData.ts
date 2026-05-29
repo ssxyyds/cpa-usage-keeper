@@ -396,6 +396,12 @@ export function codexCredentialStateFromAccount(account: CodexStateAccount, curr
     lastError: account.last_error,
     quotaRefreshStatus: account.codex_quota?.refresh_status?.trim(),
     quotaRefreshError: account.codex_quota?.refresh_error?.trim(),
+    probeStatus: account.codex_quota?.probe_status?.trim(),
+    probeAt: account.codex_quota?.probe_at?.trim(),
+    probeError: account.codex_quota?.probe_error?.trim(),
+    bootstrapStatus: account.codex_quota?.bootstrap_status?.trim(),
+    bootstrapNextAfter: account.codex_quota?.bootstrap_next_after?.trim(),
+    bootstrapError: account.codex_quota?.bootstrap_error?.trim(),
   }
 }
 

@@ -266,6 +266,7 @@ function CredentialPlanBadge({ children, tone = 'neutral' }: { children: string;
 function AuthFileQuotaPanel({ row }: { row: AuthFileCredentialRow }) {
   const { t } = useTranslation()
   const statusReason = codexStatusReason(row)
+  const diagnostics = codexQuotaDiagnostics(row, t)
 
   // 限额区域按加载、错误、刷新中、无缓存、可展示数据的顺序降级。
   if (row.quotaLoading) {
@@ -277,7 +278,7 @@ function AuthFileQuotaPanel({ row }: { row: AuthFileCredentialRow }) {
   if (row.refreshStatus === 'queued' || row.refreshStatus === 'running') {
     return <div className={styles.credentialQuotaRefreshStatus}>{t(`usage_stats.credentials_refresh_status_${row.refreshStatus}`)}</div>
   }
-  if (!row.primaryQuota && !row.secondaryQuota && row.extraQuota.length === 0 && row.quotaTotalAmount === undefined) {
+  if (!row.primaryQuota && !row.secondaryQuota && row.extraQuota.length === 0 && row.quotaTotalAmount === undefined && diagnostics.length === 0) {
     return <div className={statusReason ? styles.credentialQuotaStateError : styles.credentialQuotaState}>{statusReason || t('usage_stats.credentials_quota_unavailable')}</div>
   }
 
@@ -307,8 +308,58 @@ function AuthFileQuotaPanel({ row }: { row: AuthFileCredentialRow }) {
           ))}
         </div>
       )}
+      {diagnostics.length > 0 && (
+        <div className={styles.credentialQuotaDiagnostics}>
+          {diagnostics.map((item) => (
+            <span key={item.key} className={`${styles.credentialQuotaDiagnostic} ${item.tone === 'error' ? styles.credentialQuotaDiagnosticError : ''}`.trim()}>
+              <span className={styles.credentialQuotaDiagnosticLabel}>{item.label}</span>
+              <strong className={styles.credentialQuotaDiagnosticValue}>{item.value}</strong>
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   )
+}
+
+interface CodexQuotaDiagnostic {
+  key: string
+  label: string
+  value: string
+  tone?: 'error'
+}
+
+function codexQuotaDiagnostics(row: AuthFileCredentialRow, t: Translate): CodexQuotaDiagnostic[] {
+  const items: CodexQuotaDiagnostic[] = []
+  addCodexQuotaDiagnostic(items, 'probe', t('usage_stats.credentials_codex_probe'), formatCodexProbeDiagnostic(row))
+  addCodexQuotaDiagnostic(items, 'bootstrap_next_after', t('usage_stats.credentials_codex_bootstrap_next_after'), formatCodexDiagnosticTime(row.codexBootstrapNextAfter))
+  addCodexQuotaDiagnostic(items, 'refresh_error', t('usage_stats.credentials_codex_refresh_error'), row.codexQuotaRefreshError, 'error')
+  return items
+}
+
+function formatCodexProbeDiagnostic(row: AuthFileCredentialRow): string | undefined {
+  const status = row.codexProbeStatus?.trim()
+  const at = formatCodexDiagnosticTime(row.codexProbeAt)
+  if (status && at) {
+    return `${status} @ ${at}`
+  }
+  return status || at
+}
+
+function addCodexQuotaDiagnostic(items: CodexQuotaDiagnostic[], key: string, label: string, value?: string, tone?: 'error') {
+  const trimmed = value?.trim()
+  if (!trimmed) {
+    return
+  }
+  items.push({ key, label, value: trimmed, tone })
+}
+
+function formatCodexDiagnosticTime(value?: string): string | undefined {
+  const trimmed = value?.trim()
+  if (!trimmed) {
+    return undefined
+  }
+  return formatQuotaResetLabel(trimmed) || trimmed
 }
 
 function codexStatusReason(row: AuthFileCredentialRow): string {

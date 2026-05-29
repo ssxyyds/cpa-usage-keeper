@@ -351,7 +351,12 @@ export interface CodexQuotaState {
   last_refresh_at?: string
   refresh_status?: string
   refresh_error?: string
+  probe_at?: string
   probe_status?: string
+  probe_error?: string
+  bootstrap_status?: string
+  bootstrap_next_after?: string
+  bootstrap_error?: string
 }
 
 export interface CodexScoreExplanation {
