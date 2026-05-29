@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"cpa-usage-keeper/internal/entities"
+	"cpa-usage-keeper/internal/helper"
 	"cpa-usage-keeper/internal/repository/dto"
 	"cpa-usage-keeper/internal/timeutil"
 
@@ -81,6 +82,7 @@ func ReplaceUsageIdentitiesForProviderTypes(ctx context.Context, db *gorm.DB, id
 type ListUsageIdentitiesPageRequest struct {
 	AuthType   *entities.UsageIdentityAuthType
 	ActiveOnly *bool
+	Types      []string
 	Sort       string
 	Page       int
 	PageSize   int
@@ -128,9 +130,9 @@ func ListActiveUsageIdentities(ctx context.Context, db *gorm.DB) ([]entities.Usa
 	return identities, nil
 }
 
-func ListActiveUsageIdentitiesPage(ctx context.Context, db *gorm.DB, request ListUsageIdentitiesPageRequest) ([]entities.UsageIdentity, int64, error) {
+func ListActiveUsageIdentitiesPage(ctx context.Context, db *gorm.DB, request ListUsageIdentitiesPageRequest) ([]entities.UsageIdentity, int64, []dto.UsageIdentityTypeCount, error) {
 	if db == nil {
-		return nil, 0, fmt.Errorf("database is nil")
+		return nil, 0, nil, fmt.Errorf("database is nil")
 	}
 	page := request.Page
 	if page <= 0 {
@@ -140,24 +142,46 @@ func ListActiveUsageIdentitiesPage(ctx context.Context, db *gorm.DB, request Lis
 	if pageSize <= 0 {
 		pageSize = 10
 	}
+	types := normalizeUsageIdentityTypes(request.Types)
+
+	// type_counts 只受 auth_type/active_only 影响，不受当前 type 筛选影响，方便前端保持完整筛选按钮。
+	typeCounts, err := ListActiveUsageIdentityTypeCounts(ctx, db, request)
+	if err != nil {
+		return nil, 0, nil, err
+	}
 
 	// 先在同一过滤条件下统计总数，再追加 offset/limit 取当前页数据。
-	query := activeUsageIdentitiesQuery(db.WithContext(ctx), request.AuthType)
-	if request.ActiveOnly != nil && *request.ActiveOnly {
-		query = query.Where("disabled IS NULL OR disabled = ?", false)
-	}
+	query := activeUsageIdentitiesPageBaseQuery(db.WithContext(ctx), request.AuthType, request.ActiveOnly)
+	query = applyUsageIdentityTypesFilter(query, types)
 	var total int64
 	if err := query.Model(&entities.UsageIdentity{}).Count(&total).Error; err != nil {
-		return nil, 0, fmt.Errorf("count active usage identities page: %w", err)
+		return nil, 0, nil, fmt.Errorf("count active usage identities page: %w", err)
 	}
 	var identities []entities.UsageIdentity
 	if err := applyUsageIdentityPageSort(query.Select(usageIdentityReadColumns), request.Sort).Offset((page - 1) * pageSize).Limit(pageSize).Find(&identities).Error; err != nil {
-		return nil, 0, fmt.Errorf("list active usage identities page: %w", err)
+		return nil, 0, nil, fmt.Errorf("list active usage identities page: %w", err)
 	}
 	if err := annotateUsageIdentityCosts(ctx, db, identities); err != nil {
-		return nil, 0, err
+		return nil, 0, nil, err
 	}
-	return identities, total, nil
+	return identities, total, typeCounts, nil
+}
+
+func ListActiveUsageIdentityTypeCounts(ctx context.Context, db *gorm.DB, request ListUsageIdentitiesPageRequest) ([]dto.UsageIdentityTypeCount, error) {
+	if db == nil {
+		return nil, fmt.Errorf("database is nil")
+	}
+	var counts []dto.UsageIdentityTypeCount
+	// 按数据库原始 type 聚合，不做 lower/alias/归一化；展示归并交给前端映射层。
+	if err := activeUsageIdentitiesPageBaseQuery(db.WithContext(ctx), request.AuthType, request.ActiveOnly).
+		Model(&entities.UsageIdentity{}).
+		Select("type, COUNT(*) AS count").
+		Group("type").
+		Order("type ASC").
+		Scan(&counts).Error; err != nil {
+		return nil, fmt.Errorf("count active usage identity types: %w", err)
+	}
+	return counts, nil
 }
 
 type usageIdentityCostAggregate struct {
@@ -215,11 +239,12 @@ func annotateUsageIdentityCosts(ctx context.Context, db *gorm.DB, identities []e
 					availableByKey[key] = true
 				}
 				pricing, ok := pricingByModel[strings.TrimSpace(aggregate.Model)]
-				if !ok && usageOverviewStatRequiresPricing(aggregate.InputTokens, aggregate.OutputTokens, aggregate.CachedTokens) {
+				tokenInput := helper.UsageTokenCostInput{InputTokens: aggregate.InputTokens, OutputTokens: aggregate.OutputTokens, CachedTokens: aggregate.CachedTokens}
+				if !ok && helper.UsageTokenInputRequiresPricing(tokenInput) {
 					availableByKey[key] = false
 					continue
 				}
-				costByKey[key] += calculateUsageOverviewStatCost(aggregate.InputTokens, aggregate.OutputTokens, aggregate.CachedTokens, pricing)
+				costByKey[key] += helper.CalculateUsageTokenCost(tokenInput, pricing)
 			}
 		}
 	}
@@ -283,6 +308,25 @@ func activeUsageIdentitiesQuery(db *gorm.DB, authType *entities.UsageIdentityAut
 		query = query.Where("auth_type = ?", *authType)
 	}
 	return query
+}
+
+func activeUsageIdentitiesPageBaseQuery(db *gorm.DB, authType *entities.UsageIdentityAuthType, activeOnly *bool) *gorm.DB {
+	query := activeUsageIdentitiesQuery(db, authType)
+	if activeOnly != nil && *activeOnly {
+		query = query.Where("disabled IS NULL OR disabled = ?", false)
+	}
+	return query
+}
+
+func applyUsageIdentityTypesFilter(query *gorm.DB, types []string) *gorm.DB {
+	switch len(types) {
+	case 0:
+		return query
+	case 1:
+		return query.Where("type = ?", types[0])
+	default:
+		return query.Where("type IN ?", types)
+	}
 }
 
 func applyUsageIdentityPageSort(query *gorm.DB, sort string) *gorm.DB {
@@ -511,6 +555,23 @@ func normalizeProviderTypes(providerTypes []string) []string {
 		}
 		seen[providerType] = struct{}{}
 		types = append(types, providerType)
+	}
+	return types
+}
+
+func normalizeUsageIdentityTypes(identityTypes []string) []string {
+	seen := make(map[string]struct{}, len(identityTypes))
+	types := make([]string, 0, len(identityTypes))
+	for _, identityType := range identityTypes {
+		identityType = strings.TrimSpace(identityType)
+		if identityType == "" {
+			continue
+		}
+		if _, ok := seen[identityType]; ok {
+			continue
+		}
+		seen[identityType] = struct{}{}
+		types = append(types, identityType)
 	}
 	return types
 }

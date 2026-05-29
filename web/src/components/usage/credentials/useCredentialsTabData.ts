@@ -5,26 +5,30 @@ import {
   paginateCredentials,
   selectQuotaEligibleAuthIndexes,
   sortAuthFileCredentialRows,
-  type CodexCredentialState,
   type AiProviderCredentialRow,
   type AuthFileCredentialRow,
+  type CodexCredentialState,
 } from './credentialViewModels'
 import { useCredentialPages } from './useCredentialPages'
 import { useQuotaCache } from './useQuotaCache'
 import { ApiError, fetchCodexState, fetchUsageWindowCosts, refreshCodexState, updateCodexManualScore, type UsageIdentityPageSort } from '@/lib/api'
+import type { CodexQuotaState, CodexStateAccount, CodexStateResponse, UsageIdentityTypeCount, UsageQuotaRow, UsageWindowCostRecord, UsageWindowCostRequest } from '@/lib/types'
 import { quotaRefreshDisplayError, useQuotaRefreshTasks } from './useQuotaRefreshTasks'
-import type { CodexQuotaState, CodexStateAccount, CodexStateResponse, UsageQuotaRow, UsageWindowCostRecord, UsageWindowCostRequest } from '@/lib/types'
+import type { CredentialProviderFilterKey } from './credentialProviderFilters'
 
 const CODEX_WEEKLY_WINDOW_SECONDS = 604_800
 
 interface UseCredentialsTabDataOptions {
-  enabled: boolean
+  enabledAuthFiles: boolean
+  enabledAiProviders: boolean
   onAuthRequired?: () => void
 }
 
 export interface CredentialsTabData {
   authFileRows: AuthFileCredentialRow[]
   aiProviderRows: AiProviderCredentialRow[]
+  authFileTypeCounts: UsageIdentityTypeCount[]
+  aiProviderTypeCounts: UsageIdentityTypeCount[]
   authFileTotal: number
   aiProviderTotal: number
   authFilePageSize: number
@@ -35,6 +39,8 @@ export interface CredentialsTabData {
   aiProviderTotalPages: number
   authFileActiveOnly: boolean
   authFileSearch: string
+  authFileProviderFilter: CredentialProviderFilterKey
+  aiProviderProviderFilter: CredentialProviderFilterKey
   authFileSort: UsageIdentityPageSort
   aiProviderSort: UsageIdentityPageSort
   setAuthFilePage: (page: number) => void
@@ -43,6 +49,8 @@ export interface CredentialsTabData {
   setAiProviderPageSize: (pageSize: number) => void
   setAuthFileActiveOnly: (activeOnly: boolean) => void
   setAuthFileSearch: (search: string) => void
+  setAuthFileProviderFilter: (filter: CredentialProviderFilterKey) => void
+  setAiProviderProviderFilter: (filter: CredentialProviderFilterKey) => void
   setAuthFileSort: (sort: UsageIdentityPageSort) => void
   setAiProviderSort: (sort: UsageIdentityPageSort) => void
   loading: boolean
@@ -57,9 +65,8 @@ export interface CredentialsTabData {
   codexStateError: string
 }
 
-export function useCredentialsTabData({ enabled, onAuthRequired }: UseCredentialsTabDataOptions): CredentialsTabData {
-  // 页面 hook 只编排分页、缓存和刷新任务三层数据，不直接发散 API 调用。
-  const credentialPages = useCredentialPages({ enabled, onAuthRequired })
+export function useCredentialsTabData({ enabledAuthFiles, enabledAiProviders, onAuthRequired }: UseCredentialsTabDataOptions): CredentialsTabData {
+  const credentialPages = useCredentialPages({ enabledAuthFiles, enabledAiProviders, onAuthRequired })
   const [codexCredentialStates, setCodexCredentialStates] = useState<Record<string, CodexCredentialState>>({})
   const [codexStateLoading, setCodexStateLoading] = useState(false)
   const [codexStateError, setCodexStateError] = useState('')
@@ -114,7 +121,7 @@ export function useCredentialsTabData({ enabled, onAuthRequired }: UseCredential
   }, [onAuthRequired])
 
   useEffect(() => {
-    if (!enabled) {
+    if (!enabledAuthFiles) {
       codexStateRequestControllerRef.current?.abort()
       codexStateRequestControllerRef.current = null
       setCodexStateLoading(false)
@@ -129,7 +136,7 @@ export function useCredentialsTabData({ enabled, onAuthRequired }: UseCredential
       codexStateRequestControllerRef.current?.abort()
       codexStateRequestControllerRef.current = null
     }
-  }, [enabled, refreshCodexCredentialStates])
+  }, [enabledAuthFiles, refreshCodexCredentialStates])
 
   const codexStatesByAuthIndex = useMemo(() => new Map(Object.entries(codexCredentialStates)), [codexCredentialStates])
   const pagedAuthFileIdentities = useMemo(() => {
@@ -143,41 +150,38 @@ export function useCredentialsTabData({ enabled, onAuthRequired }: UseCredential
     return paginateCredentials(sortedRows, credentialPages.authFilePage, credentialPages.authFilePageSize).items.map((row) => row.identity)
   }, [codexStatesByAuthIndex, credentialPages.authFileClientPaging, credentialPages.authFileIdentities, credentialPages.authFilePage, credentialPages.authFilePageSize, credentialPages.authFileSort])
   const currentAuthIndexes = useMemo(
-    // quota 只对当前 Auth Files 页生效，AI Provider 不参与缓存读取和刷新。
     () => selectQuotaEligibleAuthIndexes(pagedAuthFileIdentities),
     [pagedAuthFileIdentities],
   )
-  const { quotaByAuthIndex, setQuotaByAuthIndex } = useQuotaCache({
-    enabled,
+  const { quotaByAuthIndex, cachedQuotaStateByAuthIndex, setQuotaByAuthIndex } = useQuotaCache({
+    enabled: enabledAuthFiles,
     authIndexes: currentAuthIndexes,
     onAuthRequired,
   })
   const quotaRefreshTasks = useQuotaRefreshTasks({
-    enabled,
+    enabled: enabledAuthFiles,
     currentAuthIndexes,
     setQuotaByAuthIndex,
     onAuthRequired,
   })
 
-  // 把对象状态转成 Map 后交给纯 view model，组件层只消费已组合好的行数据。
   const quotaRowsByAuthIndex = useMemo(() => new Map(Object.entries(quotaByAuthIndex)), [quotaByAuthIndex])
-  const quotaStates = useMemo(() => new Map(Object.entries(quotaRefreshTasks.quotaStateByAuthIndex).map(([authIndex, state]) => [authIndex, {
-    quotaLoading: state.loading ?? false,
-    quotaError: state.error,
-    refreshTaskId: state.refreshTaskId,
-    refreshStatus: state.refreshStatus,
-  }])), [quotaRefreshTasks.quotaStateByAuthIndex])
+  const quotaStates = useMemo(() => {
+    const mergedStates = { ...cachedQuotaStateByAuthIndex, ...quotaRefreshTasks.quotaStateByAuthIndex }
+    return new Map(Object.entries(mergedStates).map(([authIndex, state]) => [authIndex, {
+      quotaLoading: state.loading ?? false,
+      quotaError: state.error,
+      refreshStatus: state.refreshStatus,
+    }]))
+  }, [cachedQuotaStateByAuthIndex, quotaRefreshTasks.quotaStateByAuthIndex])
 
-  const allAuthFileRows = useMemo(
+  const authFileRows = useMemo(
     () => sortAuthFileCredentialRows(
-      buildAuthFileCredentialRows(credentialPages.authFileClientPaging ? pagedAuthFileIdentities : credentialPages.authFileIdentities, quotaRowsByAuthIndex, quotaStates, codexStatesByAuthIndex),
+      buildAuthFileCredentialRows(pagedAuthFileIdentities, quotaRowsByAuthIndex, quotaStates, codexStatesByAuthIndex),
       credentialPages.authFileSort,
     ),
-    [codexStatesByAuthIndex, credentialPages.authFileClientPaging, credentialPages.authFileIdentities, credentialPages.authFileSort, pagedAuthFileIdentities, quotaRowsByAuthIndex, quotaStates],
+    [codexStatesByAuthIndex, credentialPages.authFileSort, pagedAuthFileIdentities, quotaRowsByAuthIndex, quotaStates],
   )
-  const authFileRows = useMemo(() => {
-    return allAuthFileRows
-  }, [allAuthFileRows])
   const aiProviderRows = useMemo(
     () => buildAiProviderCredentialRows(credentialPages.aiProviderIdentities),
     [credentialPages.aiProviderIdentities],
@@ -208,12 +212,18 @@ export function useCredentialsTabData({ enabled, onAuthRequired }: UseCredential
     await refreshCodexCredentialStates()
   }, [refreshCodexCredentialStates])
   const refresh = useCallback(async () => {
-    await Promise.all([credentialPages.refresh(), refreshCodexCredentialStates()])
-  }, [credentialPages, refreshCodexCredentialStates])
+    const tasks: Array<Promise<void>> = [credentialPages.refresh()]
+    if (enabledAuthFiles) {
+      tasks.push(refreshCodexCredentialStates())
+    }
+    await Promise.all(tasks)
+  }, [credentialPages, enabledAuthFiles, refreshCodexCredentialStates])
 
   return {
     authFileRows,
     aiProviderRows,
+    authFileTypeCounts: credentialPages.authFileTypeCounts,
+    aiProviderTypeCounts: credentialPages.aiProviderTypeCounts,
     authFileTotal: credentialPages.authFileTotal,
     aiProviderTotal: credentialPages.aiProviderTotal,
     authFilePageSize: credentialPages.authFilePageSize,
@@ -224,6 +234,8 @@ export function useCredentialsTabData({ enabled, onAuthRequired }: UseCredential
     aiProviderTotalPages: credentialPages.aiProviderTotalPages,
     authFileActiveOnly: credentialPages.authFileActiveOnly,
     authFileSearch: credentialPages.authFileSearch,
+    authFileProviderFilter: credentialPages.authFileProviderFilter,
+    aiProviderProviderFilter: credentialPages.aiProviderProviderFilter,
     authFileSort: credentialPages.authFileSort,
     aiProviderSort: credentialPages.aiProviderSort,
     setAuthFilePage: credentialPages.setAuthFilePage,
@@ -232,6 +244,8 @@ export function useCredentialsTabData({ enabled, onAuthRequired }: UseCredential
     setAiProviderPageSize: credentialPages.setAiProviderPageSize,
     setAuthFileActiveOnly: credentialPages.setAuthFileActiveOnly,
     setAuthFileSearch: credentialPages.setAuthFileSearch,
+    setAuthFileProviderFilter: credentialPages.setAuthFileProviderFilter,
+    setAiProviderProviderFilter: credentialPages.setAiProviderProviderFilter,
     setAuthFileSort: credentialPages.setAuthFileSort,
     setAiProviderSort: credentialPages.setAiProviderSort,
     loading: credentialPages.loading,

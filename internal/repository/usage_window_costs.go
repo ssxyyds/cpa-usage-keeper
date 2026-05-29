@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"cpa-usage-keeper/internal/entities"
+	"cpa-usage-keeper/internal/helper"
 	"cpa-usage-keeper/internal/repository/dto"
 	"cpa-usage-keeper/internal/timeutil"
 	"gorm.io/gorm"
@@ -60,14 +61,14 @@ func AggregateUsageWindowCosts(ctx context.Context, db *gorm.DB, requests []dto.
 			record.TotalTokens += event.TotalTokens
 			model := strings.TrimSpace(event.Model)
 			pricing, ok := pricingByModel[model]
-			if !ok && usageEventRequiresPricing(event) {
+			if !ok && helper.UsageEventRequiresPricing(event) {
 				record.CostAvailable = false
 				if _, exists := missingModelsByKey[key]; !exists {
 					missingModelsByKey[key] = map[string]struct{}{}
 				}
 				missingModelsByKey[key][model] = struct{}{}
 			} else {
-				record.TotalCost += calculateUsageEventCost(event, pricing)
+				record.TotalCost += helper.CalculateUsageEventCost(event, pricing)
 			}
 			result[key] = record
 		}

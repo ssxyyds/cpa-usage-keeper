@@ -198,6 +198,7 @@ export type UsageIdentityPageSort = 'priority' | 'total_requests' | 'total_token
 export interface FetchUsageIdentitiesPageOptions {
   authType?: UsageIdentityAuthType
   activeOnly?: boolean
+  types?: string[]
   sort?: UsageIdentityPageSort
   page?: number
   pageSize?: number
@@ -222,6 +223,11 @@ export async function fetchUsageIdentitiesPage(signal?: AbortSignal, options?: F
   }
   if (options?.sort) {
     params.set('sort', options.sort)
+  }
+  for (const type of options?.types ?? []) {
+    if (type !== '') {
+      params.append('type', type)
+    }
   }
   if (typeof options?.page === 'number' && Number.isFinite(options.page) && options.page > 0) {
     params.set('page', String(Math.floor(options.page)))
@@ -284,8 +290,8 @@ export async function refreshUsageQuotas(authIndexes: string[], signal?: AbortSi
   return response.json()
 }
 
-export async function fetchUsageQuotaRefreshTask(taskId: string, signal?: AbortSignal): Promise<UsageQuotaRefreshTaskResponse> {
-  const response = await apiFetch(apiPath(`/quota/refresh/${encodeURIComponent(taskId)}`), { signal })
+export async function fetchUsageQuotaRefreshTask(authIndex: string, signal?: AbortSignal): Promise<UsageQuotaRefreshTaskResponse> {
+  const response = await apiFetch(apiPath(`/quota/refresh/${encodeURIComponent(authIndex)}`), { signal })
   if (!response.ok) {
     await parseApiError(response, `Failed to load usage quota refresh task: ${response.status}`)
   }
@@ -406,6 +412,13 @@ export async function fetchStatus(signal?: AbortSignal): Promise<StatusResponse>
     await parseApiError(response, `Failed to load status: ${response.status}`)
   }
   return response.json()
+}
+
+export async function markStatusActive(signal?: AbortSignal): Promise<void> {
+  const response = await apiFetch(apiPath('/status/active'), { signal })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to mark backend page activity: ${response.status}`)
+  }
 }
 
 export async function fetchUpdateCheck(signal?: AbortSignal): Promise<UpdateCheckResponse> {

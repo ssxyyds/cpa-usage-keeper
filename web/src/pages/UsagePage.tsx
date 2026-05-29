@@ -14,7 +14,7 @@ import {
   Legend,
   Filler
 } from 'chart.js';
-import { ApiError, fetchAnalysis, fetchCodexState, fetchCpaApiKeyOptions, fetchCpaApiKeys, fetchStatus, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventSourceFilterOptions, fetchUsageEvents, logout, updateCpaApiKeyAlias } from '@/lib/api';
+import { ApiError, fetchAnalysis, fetchCodexState, fetchCpaApiKeyOptions, fetchCpaApiKeys, fetchStatus, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventSourceFilterOptions, fetchUsageEvents, logout, markStatusActive, updateCpaApiKeyAlias } from '@/lib/api';
 import type { AnalysisResponse, CodexStateResponse, CpaApiKeyOption, CpaApiKeySettingsItem, StatusResponse, UsageEvent, UsageSourceFilterOption } from '@/lib/types';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { LanguageSwitcher } from '@/components/ui/LanguageSwitcher';
@@ -44,7 +44,6 @@ import {
   useChartData,
   useCredentialsTabData
 } from '@/components/usage';
-import { filterCredentialsByProvider, type CredentialProviderFilterKey } from '@/components/usage/credentials/credentialProviderFilters';
 import { buildUsageRangeQuery } from '@/utils/usage/rangeQuery';
 import {
   getModelNamesFromUsage,
@@ -102,14 +101,15 @@ const THEME_OPTIONS: ReadonlyArray<{ value: Theme; labelKey: string }> = [
   { value: 'dark', labelKey: 'usage_stats.theme_dark' },
   { value: 'auto', labelKey: 'usage_stats.theme_auto' }
 ];
-const USAGE_TAB_OPTIONS = ['overview', 'analysis', 'events', 'credentials', 'settings'] as const;
+const USAGE_TAB_OPTIONS = ['overview', 'analysis', 'events', 'auth-files', 'ai-provider', 'settings'] as const;
 type UsageTab = (typeof USAGE_TAB_OPTIONS)[number];
 type Translate = (key: string) => string;
 const USAGE_TAB_LABEL_KEYS: Record<UsageTab, string> = {
   overview: 'usage_stats.tab_overview',
   analysis: 'usage_stats.tab_analysis',
   events: 'usage_stats.tab_events',
-  credentials: 'usage_stats.tab_credentials',
+  'auth-files': 'usage_stats.tab_auth_files',
+  'ai-provider': 'usage_stats.tab_ai_provider',
   settings: 'usage_stats.tab_settings',
 };
 const DEFAULT_USAGE_TAB: UsageTab = 'overview';
@@ -118,16 +118,28 @@ const REQUEST_EVENTS_PAGE_SIZES = [20, 50, 100, 500, 1000] as const;
 const REQUEST_EVENTS_DEFAULT_PAGE_SIZE = 100;
 const ALL_REQUEST_EVENTS_FILTER = '__all__';
 const OVERVIEW_AUTO_REFRESH_INTERVAL_MS = 10_000;
+export const STATUS_ACTIVE_HEARTBEAT_INTERVAL_MS = 30_000;
 const CPA_MANAGEMENT_PAGE = 'management.html';
 const ABSOLUTE_HTTP_URL_PATTERN = /^https?:\/\//i;
 const EXPLICIT_URL_SCHEME_PATTERN = /^[a-z][a-z\d+.-]*:/i;
 const BARE_HOST_WITH_PORT_PATTERN = /^[a-z0-9.-]+:\d+(?:[/?#]|$)/i;
 
-export const shouldShowRangeControls = (tab: UsageTab) => tab !== 'settings' && tab !== 'credentials';
+export const getCredentialSectionVisibility = (tab: UsageTab) => ({
+  enabled: tab === 'auth-files' || tab === 'ai-provider',
+  showAuthFiles: tab === 'auth-files',
+  showAiProvider: tab === 'ai-provider',
+});
+
+export const shouldShowRangeControls = (tab: UsageTab) => tab !== 'settings' && !getCredentialSectionVisibility(tab).enabled;
 
 export const shouldShowApiKeyFilter = (tab: UsageTab) => shouldShowRangeControls(tab);
 
 export const shouldShowUpdateCheckButton = (status: Pick<StatusResponse, 'updateCheckEnabled'> | null) => status?.updateCheckEnabled === true;
+
+export const isUsagePageVisible = (documentRef?: Pick<Document, 'visibilityState'>) => {
+  const targetDocument = documentRef ?? (typeof document === 'undefined' ? undefined : document);
+  return !targetDocument || targetDocument.visibilityState !== 'hidden';
+};
 
 const getBrowserOrigin = () => (typeof window === 'undefined' ? '' : window.location.origin);
 
@@ -210,6 +222,24 @@ type OverviewAutoRefreshOptions = {
   intervalMs?: number;
 };
 
+type StatusActiveHeartbeatDocument = Pick<Document, 'visibilityState' | 'addEventListener' | 'removeEventListener'>;
+
+type StatusActiveHeartbeatTimerTarget = {
+  setInterval: (handler: () => void, timeout: number) => number;
+  clearInterval: (handle: number) => void;
+};
+
+type StatusActiveHeartbeatOptions = {
+  loadStatus: (signal: AbortSignal) => Promise<StatusResponse>;
+  markActive: (signal: AbortSignal) => Promise<void>;
+  setStatus: (status: StatusResponse) => void;
+  setStatusError: (error: string) => void;
+  onAuthRequired?: () => void;
+  documentRef?: StatusActiveHeartbeatDocument;
+  timerTarget?: StatusActiveHeartbeatTimerTarget;
+  intervalMs?: number;
+};
+
 export const refreshPageData = async ({ refreshActiveTab }: RefreshPageDataOptions) => {
   await refreshActiveTab();
 };
@@ -266,6 +296,80 @@ export const scheduleOverviewAutoRefresh = ({
   return () => {
     stopTimer();
     targetDocument.removeEventListener('visibilitychange', handleVisibilityChange);
+  };
+};
+
+export const scheduleStatusActiveHeartbeat = ({
+  loadStatus,
+  markActive,
+  setStatus,
+  setStatusError,
+  onAuthRequired,
+  documentRef,
+  timerTarget,
+  intervalMs = STATUS_ACTIVE_HEARTBEAT_INTERVAL_MS,
+}: StatusActiveHeartbeatOptions) => {
+  const targetDocument = documentRef ?? (typeof document === 'undefined' ? undefined : document);
+  const timers = timerTarget ?? (typeof window === 'undefined' ? undefined : {
+    setInterval: window.setInterval.bind(window),
+    clearInterval: window.clearInterval.bind(window),
+  });
+  if (!timers) {
+    return () => undefined;
+  }
+
+  let controller: AbortController | null = null;
+  let timer: number | null = null;
+  const isVisible = () => isUsagePageVisible(targetDocument);
+  const stopPolling = () => {
+    controller?.abort();
+    controller = null;
+    if (timer !== null) {
+      timers.clearInterval(timer);
+      timer = null;
+    }
+  };
+  const loadAndMarkActive = async () => {
+    controller?.abort();
+    const requestController = new AbortController();
+    controller = requestController;
+    try {
+      // status 成功后才发送 active 心跳，避免异常页面状态把后端误标记为活跃。
+      const status = await loadStatus(requestController.signal);
+      setStatus(status);
+      setStatusError(status.last_error || '');
+      await markActive(requestController.signal);
+    } catch (error) {
+      if (requestController.signal.aborted) return;
+      if (error instanceof ApiError && error.status === 401) {
+        onAuthRequired?.();
+      }
+    }
+  };
+  const startPolling = () => {
+    if (!isVisible()) {
+      stopPolling();
+      return;
+    }
+    void loadAndMarkActive();
+    timer = timers.setInterval(() => {
+      void loadAndMarkActive();
+    }, intervalMs);
+  };
+  const handleVisibilityChange = () => {
+    stopPolling();
+    startPolling();
+  };
+
+  startPolling();
+  if (targetDocument) {
+    targetDocument.addEventListener('visibilitychange', handleVisibilityChange);
+  }
+  return () => {
+    if (targetDocument) {
+      targetDocument.removeEventListener('visibilitychange', handleVisibilityChange);
+    }
+    stopPolling();
   };
 };
 
@@ -447,6 +551,13 @@ const loadTimeRange = (): UsageTimeRange => {
 const isUsageTab = (value: unknown): value is UsageTab =>
   typeof value === 'string' && USAGE_TAB_OPTIONS.includes(value as UsageTab);
 
+export const normalizeUsageTabValue = (value: unknown): UsageTab | null => {
+  if (value === 'credentials') {
+    return 'auth-files';
+  }
+  return isUsageTab(value) ? value : null;
+};
+
 export const getUsageTabOptions = (translate: Translate): Array<{ value: UsageTab; label: string }> =>
   USAGE_TAB_OPTIONS.map((value) => ({
     value,
@@ -499,7 +610,7 @@ const loadUsageTab = (): UsageTab => {
       return DEFAULT_USAGE_TAB;
     }
     const raw = localStorage.getItem(USAGE_TAB_STORAGE_KEY);
-    return isUsageTab(raw) ? raw : DEFAULT_USAGE_TAB;
+    return normalizeUsageTabValue(raw) ?? DEFAULT_USAGE_TAB;
   } catch {
     return DEFAULT_USAGE_TAB;
   }
@@ -520,6 +631,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const [apiKeyOptions, setApiKeyOptions] = useState<CpaApiKeyOption[]>([]);
   const apiKeyOptionsRequestControllerRef = useRef<AbortController | null>(null);
   const isOverviewTab = activeTab === 'overview';
+  const credentialSectionVisibility = getCredentialSectionVisibility(activeTab);
 
   const {
     usage,
@@ -578,12 +690,13 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const [codexOverviewLoading, setCodexOverviewLoading] = useState(false);
   const codexOverviewRequestControllerRef = useRef<AbortController | null>(null);
   const [manualRefreshLoading, setManualRefreshLoading] = useState(false);
+  const [pageVisible, setPageVisible] = useState(isUsagePageVisible);
   const credentialsData = useCredentialsTabData({
-    enabled: activeTab === 'credentials',
+    enabledAuthFiles: credentialSectionVisibility.showAuthFiles && pageVisible,
+    enabledAiProviders: credentialSectionVisibility.showAiProvider && pageVisible,
     onAuthRequired,
   });
   const refreshCredentials = credentialsData.refresh;
-  const [credentialProviderFilter, setCredentialProviderFilter] = useState<CredentialProviderFilterKey>('all');
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [analysisError, setAnalysisError] = useState('');
   const [analysisData, setAnalysisData] = useState<AnalysisResponse | null>(null);
@@ -599,18 +712,14 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     ],
     [apiKeyOptions, t],
   );
-  const credentialRowsForProviderFilter = useMemo(
-    () => [...credentialsData.authFileRows, ...credentialsData.aiProviderRows],
-    [credentialsData.aiProviderRows, credentialsData.authFileRows],
-  );
-  const filteredAuthFileCredentialRows = useMemo(
-    () => filterCredentialsByProvider(credentialsData.authFileRows, credentialProviderFilter),
-    [credentialProviderFilter, credentialsData.authFileRows],
-  );
-  const filteredAiProviderCredentialRows = useMemo(
-    () => filterCredentialsByProvider(credentialsData.aiProviderRows, credentialProviderFilter),
-    [credentialProviderFilter, credentialsData.aiProviderRows],
-  );
+  const credentialTypeCountsForProviderFilter = useMemo(() => {
+    if (credentialSectionVisibility.showAuthFiles) return credentialsData.authFileTypeCounts;
+    if (credentialSectionVisibility.showAiProvider) return credentialsData.aiProviderTypeCounts;
+    return [];
+  }, [credentialSectionVisibility.showAiProvider, credentialSectionVisibility.showAuthFiles, credentialsData.aiProviderTypeCounts, credentialsData.authFileTypeCounts]);
+  const activeCredentialProviderFilter = credentialSectionVisibility.showAiProvider ? credentialsData.aiProviderProviderFilter : credentialsData.authFileProviderFilter;
+  const setActiveCredentialProviderFilter = credentialSectionVisibility.showAiProvider ? credentialsData.setAiProviderProviderFilter : credentialsData.setAuthFileProviderFilter;
+  const activeCredentialProviderFilterScope = credentialSectionVisibility.showAiProvider ? 'ai-provider' : 'auth-files';
   const themeOptions = useMemo(
     () =>
       THEME_OPTIONS.map((option) => ({
@@ -869,31 +978,27 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   }, [customTimeRange.end, customTimeRange.start, lastRefreshedAt, timeRange]);
 
   useEffect(() => {
-    let controller: AbortController | null = null;
-    const loadStatus = async () => {
-      controller?.abort();
-      const requestController = new AbortController();
-      controller = requestController;
-      try {
-        const status: StatusResponse = await fetchStatus(requestController.signal);
-        setStatus(status);
-        setStatusError(status.last_error || '');
-      } catch (error) {
-        if (requestController.signal.aborted) return;
-        if (error instanceof ApiError && error.status === 401) {
-          onAuthRequired?.();
-          return;
-        }
-      }
-    };
-    void loadStatus();
-    const timer = window.setInterval(() => {
-      void loadStatus();
-    }, 30_000);
+    // Credentials 列表、quota cache 和 task polling 都跟页面可见性绑定，隐藏页不保持续约或轮询。
+    const syncPageVisible = () => setPageVisible(isUsagePageVisible());
+    syncPageVisible();
+    if (typeof document === 'undefined') {
+      return undefined;
+    }
+    document.addEventListener('visibilitychange', syncPageVisible);
     return () => {
-      controller?.abort();
-      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', syncPageVisible);
     };
+  }, []);
+
+  useEffect(() => {
+    // 页面级心跳独立于 Credentials tab；调度函数内部负责可见性、abort 和 timer 清理。
+    return scheduleStatusActiveHeartbeat({
+      loadStatus: fetchStatus,
+      markActive: markStatusActive,
+      setStatus,
+      setStatusError,
+      onAuthRequired,
+    });
   }, [onAuthRequired]);
 
   useEffect(() => {
@@ -1076,7 +1181,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       await Promise.all([loadEventFilterOptions(), loadEvents()]);
       return;
     }
-    if (activeTab === 'credentials') {
+    if (credentialSectionVisibility.enabled) {
       await refreshCredentials();
       return;
     }
@@ -1089,19 +1194,19 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       return;
     }
     await Promise.all([loadUsage(), loadCodexOverview()]);
-  }, [activeTab, loadAnalysis, loadApiKeySettings, loadCodexOverview, loadEventFilterOptions, loadEvents, loadPricing, loadUsage, refreshCredentials]);
+  }, [activeTab, credentialSectionVisibility.enabled, loadAnalysis, loadApiKeySettings, loadCodexOverview, loadEventFilterOptions, loadEvents, loadPricing, loadUsage, refreshCredentials]);
 
   const refreshAutoRefreshTab = useCallback(async () => {
     if (activeTab === 'events') {
       await loadEvents();
       return;
     }
-    if (activeTab === 'credentials') {
+    if (credentialSectionVisibility.enabled) {
       await refreshCredentials();
       return;
     }
     await Promise.all([loadUsage(), loadCodexOverview()]);
-  }, [activeTab, loadCodexOverview, loadEvents, loadUsage, refreshCredentials]);
+  }, [activeTab, credentialSectionVisibility.enabled, loadCodexOverview, loadEvents, loadUsage, refreshCredentials]);
 
   const autoRefreshEnabled = shouldAutoRefreshUsageTab({
     activeTab,
@@ -1495,52 +1600,62 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                     >
                       <label className={styles.customRangeField}>
                         <span className={styles.customRangeFieldLabel}>{t('usage_stats.custom_start')}</span>
-                        <input
-                          type="date"
-                          className={`input ${styles.customRangeInput}`}
-                          value={customTimeRange.start}
-                          min={customDateRangeBounds.min}
-                          max={customDateRangeBounds.max}
-                          disabled={!isCustomRange}
-                          onClick={handleCustomDateInputActivate}
-                          onFocus={handleCustomDateInputActivate}
-                          onKeyDown={handleCustomDateInputKeyDown}
-                          onPaste={(event) => event.preventDefault()}
-                          onChange={(event) => {
-                            const nextValue = event.target.value;
-                            if (!isCustomDateWithinBounds(nextValue, customDateRangeBounds)) return;
-                            setCustomTimeRange((current) => ({
-                              ...current,
-                              start: nextValue
-                            }));
-                          }}
-                          aria-label={t('usage_stats.custom_start')}
-                        />
+                        <span className={styles.customRangeInputShell}>
+                          <input
+                            type="date"
+                            className={`input ${styles.customRangeInput}`}
+                            value={customTimeRange.start}
+                            min={customDateRangeBounds.min}
+                            max={customDateRangeBounds.max}
+                            disabled={!isCustomRange}
+                            onClick={handleCustomDateInputActivate}
+                            onFocus={handleCustomDateInputActivate}
+                            onKeyDown={handleCustomDateInputKeyDown}
+                            onPaste={(event) => event.preventDefault()}
+                            onChange={(event) => {
+                              const nextValue = event.target.value;
+                              if (!isCustomDateWithinBounds(nextValue, customDateRangeBounds)) return;
+                              setCustomTimeRange((current) => ({
+                                ...current,
+                                start: nextValue
+                              }));
+                            }}
+                            aria-label={t('usage_stats.custom_start')}
+                          />
+                          <span className={styles.customRangeInputDisplay} aria-hidden="true">
+                            {customTimeRange.start || 'YYYY-MM-DD'}
+                          </span>
+                        </span>
                       </label>
                       <span className={styles.customRangeSeparator} aria-hidden="true">—</span>
                       <label className={styles.customRangeField}>
                         <span className={styles.customRangeFieldLabel}>{t('usage_stats.custom_end')}</span>
-                        <input
-                          type="date"
-                          className={`input ${styles.customRangeInput}`}
-                          value={customTimeRange.end}
-                          min={customDateRangeBounds.min}
-                          max={customDateRangeBounds.max}
-                          disabled={!isCustomRange}
-                          onClick={handleCustomDateInputActivate}
-                          onFocus={handleCustomDateInputActivate}
-                          onKeyDown={handleCustomDateInputKeyDown}
-                          onPaste={(event) => event.preventDefault()}
-                          onChange={(event) => {
-                            const nextValue = event.target.value;
-                            if (!isCustomDateWithinBounds(nextValue, customDateRangeBounds)) return;
-                            setCustomTimeRange((current) => ({
-                              ...current,
-                              end: nextValue
-                            }));
-                          }}
-                          aria-label={t('usage_stats.custom_end')}
-                        />
+                        <span className={styles.customRangeInputShell}>
+                          <input
+                            type="date"
+                            className={`input ${styles.customRangeInput}`}
+                            value={customTimeRange.end}
+                            min={customDateRangeBounds.min}
+                            max={customDateRangeBounds.max}
+                            disabled={!isCustomRange}
+                            onClick={handleCustomDateInputActivate}
+                            onFocus={handleCustomDateInputActivate}
+                            onKeyDown={handleCustomDateInputKeyDown}
+                            onPaste={(event) => event.preventDefault()}
+                            onChange={(event) => {
+                              const nextValue = event.target.value;
+                              if (!isCustomDateWithinBounds(nextValue, customDateRangeBounds)) return;
+                              setCustomTimeRange((current) => ({
+                                ...current,
+                                end: nextValue
+                              }));
+                            }}
+                            aria-label={t('usage_stats.custom_end')}
+                          />
+                          <span className={styles.customRangeInputDisplay} aria-hidden="true">
+                            {customTimeRange.end || 'YYYY-MM-DD'}
+                          </span>
+                        </span>
                       </label>
                     </div>
                   </div>
@@ -1687,48 +1802,53 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
               </>
             )}
 
-            {activeTab === 'credentials' && (
+            {credentialSectionVisibility.enabled && (
               <>
                 {credentialsData.error && <div className={styles.errorBox}>{credentialsData.error}</div>}
                 <CredentialProviderFilterBar
-                  rows={credentialRowsForProviderFilter}
-                  value={credentialProviderFilter}
-                  onChange={setCredentialProviderFilter}
+                  scope={activeCredentialProviderFilterScope}
+                  typeCounts={credentialTypeCountsForProviderFilter}
+                  value={activeCredentialProviderFilter}
+                  onChange={setActiveCredentialProviderFilter}
                 />
                 <div className={styles.credentialsSections}>
-                  <AuthFileCredentialsSection
-                    rows={filteredAuthFileCredentialRows}
-                    total={credentialsData.authFileTotal}
-                    page={credentialsData.authFilePage}
-                    totalPages={credentialsData.authFileTotalPages}
-                    pageSize={credentialsData.authFilePageSize}
-                    activeOnly={credentialsData.authFileActiveOnly}
-                    search={credentialsData.authFileSearch}
-                    sort={credentialsData.authFileSort}
-                    loading={credentialsData.loading}
-                    quotaRefreshing={credentialsData.quotaRefreshing}
-                    quotaRefreshError={credentialsData.quotaRefreshError}
-                    onPageChange={credentialsData.setAuthFilePage}
-                    onPageSizeChange={credentialsData.setAuthFilePageSize}
-                    onActiveOnlyChange={credentialsData.setAuthFileActiveOnly}
-                    onSearchChange={credentialsData.setAuthFileSearch}
-                    onSortChange={credentialsData.setAuthFileSort}
-                    onRefreshQuota={credentialsData.refreshQuotaForCurrentAuthFilePage}
-                    onRefreshQuotaForAuthIndex={credentialsData.refreshQuotaForAuthIndex}
-                    onUpdateCodexManualScore={credentialsData.updateCodexManualScoreForAuthIndex}
-                  />
-                  <AiProviderCredentialsSection
-                    rows={filteredAiProviderCredentialRows}
-                    total={credentialsData.aiProviderTotal}
-                    page={credentialsData.aiProviderPage}
-                    totalPages={credentialsData.aiProviderTotalPages}
-                    pageSize={credentialsData.aiProviderPageSize}
-                    sort={credentialsData.aiProviderSort}
-                    loading={credentialsData.loading}
-                    onPageChange={credentialsData.setAiProviderPage}
-                    onPageSizeChange={credentialsData.setAiProviderPageSize}
-                    onSortChange={credentialsData.setAiProviderSort}
-                  />
+                  {credentialSectionVisibility.showAuthFiles && (
+                    <AuthFileCredentialsSection
+                      rows={credentialsData.authFileRows}
+                      total={credentialsData.authFileTotal}
+                      page={credentialsData.authFilePage}
+                      totalPages={credentialsData.authFileTotalPages}
+                      pageSize={credentialsData.authFilePageSize}
+                      activeOnly={credentialsData.authFileActiveOnly}
+                      search={credentialsData.authFileSearch}
+                      sort={credentialsData.authFileSort}
+                      loading={credentialsData.loading}
+                      quotaRefreshing={credentialsData.quotaRefreshing}
+                      quotaRefreshError={credentialsData.quotaRefreshError}
+                      onPageChange={credentialsData.setAuthFilePage}
+                      onPageSizeChange={credentialsData.setAuthFilePageSize}
+                      onActiveOnlyChange={credentialsData.setAuthFileActiveOnly}
+                      onSearchChange={credentialsData.setAuthFileSearch}
+                      onSortChange={credentialsData.setAuthFileSort}
+                      onRefreshQuota={credentialsData.refreshQuotaForCurrentAuthFilePage}
+                      onRefreshQuotaForAuthIndex={credentialsData.refreshQuotaForAuthIndex}
+                      onUpdateCodexManualScore={credentialsData.updateCodexManualScoreForAuthIndex}
+                    />
+                  )}
+                  {credentialSectionVisibility.showAiProvider && (
+                    <AiProviderCredentialsSection
+                      rows={credentialsData.aiProviderRows}
+                      total={credentialsData.aiProviderTotal}
+                      page={credentialsData.aiProviderPage}
+                      totalPages={credentialsData.aiProviderTotalPages}
+                      pageSize={credentialsData.aiProviderPageSize}
+                      sort={credentialsData.aiProviderSort}
+                      loading={credentialsData.loading}
+                      onPageChange={credentialsData.setAiProviderPage}
+                      onPageSizeChange={credentialsData.setAiProviderPageSize}
+                      onSortChange={credentialsData.setAiProviderSort}
+                    />
+                  )}
                 </div>
               </>
             )}
